@@ -29,7 +29,7 @@ python run.py
 - 歷史記錄可查看你看過與伺服器快取過的幣別對
 
 ## 實際界面
-![實際界面](https://github.com/tszngaiyip/Currency_chart/tree/main/static/images/6mo.png?raw=true)
+![image](https://github.com/tszngaiyip/Currency_chart/blob/main/static/images/6mo.png?raw=true)
 
 ## 資料來源與版權
 - 匯率資料取自 Mastercard 公開服務，請遵守對方條款
