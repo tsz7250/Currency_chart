@@ -28,6 +28,9 @@ python run.py
 - 生成圖表時會看到進度條，完成後自動顯示
 - 歷史記錄可查看你看過與伺服器快取過的幣別對
 
+## 實際界面
+![實際界面](https://github.com/tszngaiyip/Currency_chart/tree/main/static/images/6mo.png)
+
 ## 資料來源與版權
 - 匯率資料取自 Mastercard 公開服務，請遵守對方條款
 - 本專案僅供學習與個人使用，如需散布請自行加入 LICENSE
