@@ -2,6 +2,9 @@
 
 用簡單的方式查看多幣別匯率走勢。支援近 7／30／90／180 天圖表、幣別搜尋與交換，並在背景自動更新資料。
 
+## 實際界面
+![image](https://github.com/tszngaiyip/Currency_chart/blob/main/static/images/6mo.png?raw=true)
+
 ## 如何開始（Windows）
 1) 安裝相依套件
 
@@ -27,9 +30,6 @@ python run.py
 - 右側選擇「買入/賣出」幣別（可搜尋、可交換），點「確認變更」
 - 生成圖表時會看到進度條，完成後自動顯示
 - 歷史記錄可查看你看過與伺服器快取過的幣別對
-
-## 實際界面
-![image](https://github.com/tszngaiyip/Currency_chart/blob/main/static/images/6mo.png?raw=true)
 
 ## 資料來源與版權
 - 匯率資料取自 Mastercard 公開服務，請遵守對方條款
