@@ -8,3 +8,5 @@ notebook
 schedule
 gunicorn
 gevent
+playwright
+playwright-stealth

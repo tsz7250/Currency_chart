@@ -2,6 +2,8 @@ import os
 import json
 import time
 import hashlib
+import asyncio
+import logging
 import requests
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
@@ -13,6 +15,8 @@ from flask import current_app
 
 from .utils import LRUCache, RateLimiter
 from .sse import send_sse_event
+
+logger = logging.getLogger(__name__)
 
 # 數據文件路徑
 DATA_FILE = 'TWD-HKD_180d.json'
@@ -53,7 +57,7 @@ class ExchangeRateManager:
                 with open(DATA_FILE, 'r', encoding='utf-8') as f:
                     return json.load(f)
             except (json.JSONDecodeError, IOError) as e:
-                print(f"載入數據時發生錯誤: {e}")
+                logger.error(f"載入數據時發生錯誤: {e}", exc_info=True)
                 return {}
         return {}
 
@@ -68,158 +72,113 @@ class ExchangeRateManager:
         dates = list(self.data.keys())
         dates.sort()
         return dates
+    
+    def shutdown(self):
+        """清理資源"""
+        if hasattr(self, 'background_executor'):
+            print("🛑 正在關閉 ThreadPoolExecutor...")
+            self.background_executor.shutdown(wait=True, timeout=10)
+            print("✅ ThreadPoolExecutor 已關閉")
+    
+    def __enter__(self):
+        """上下文管理器支援"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器退出時清理"""
+        self.shutdown()
 
     
 
     def get_exchange_rate(self, date, buy_currency='TWD', sell_currency='HKD'):
-        """獲取指定日期的匯率"""
-        with self._pause_lock:
-            if self._network_paused:
-                if time.time() < self._pause_until:
-                    if not self._pause_message_printed:
-                        print(f"⏸️ 網路請求已暫停，將於 {datetime.fromtimestamp(self._pause_until).strftime('%H:%M:%S')} 恢復。")
-                        self._pause_message_printed = True
-                    return None
-                else:
-                    self._network_paused = False
-                    self._pause_until = 0
-                    self._pause_message_printed = False
-                    print("🟢 網路請求暫停已解除，嘗試恢復。")
-
-        url = "https://www.mastercard.com/marketingservices/public/mccom-services/currency-conversions/conversion-rates"
-
-        params = {
-            'exchange_date': date.strftime('%Y-%m-%d'),
-            'transaction_currency': buy_currency,
-            'cardholder_billing_currency': sell_currency,
-            'bank_fee': '0',
-            'transaction_amount': '1'
-        }
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "Accept": "*/*",
-            "Accept-Language": "zh-TW,zh;q=0.9",
-            "Sec-Ch-Ua": "\"Google Chrome\";v=\"137\", \"Chromium\";v=\"137\", \"Not/A)Brand\";v=\"24\"",
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": "\"Windows\"",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "Referer": "https://www.mastercard.com/us/en/personal/get-support/currency-exchange-rate-converter.html"
-        }
-
+        """
+        獲取指定日期的匯率
+        - TWD-HKD: 從本地數據讀取（快速）
+        - 其他貨幣對: 實時從 Mastercard 獲取（使用 cookies）
+        """
+        date_str = date.strftime('%Y-%m-%d')
+        
+        # 如果是 TWD-HKD，從本地數據讀取
+        if buy_currency == 'TWD' and sell_currency == 'HKD':
+            if date_str in self.data:
+                rate = self.data[date_str].get('rate')
+                if rate:
+                    return {
+                        'data': {
+                            'conversionRate': str(rate)
+                        }
+                    }
+            # 本地數據中沒有該日期的數據
+            return None
+        
+        # 其他貨幣對：使用 mastercard_scraper 實時獲取
         try:
-            print(f"🔍 發送 API 請求獲取 {date.strftime('%Y-%m-%d')} 的匯率數據")
-            rate_limiter.wait_if_needed()
-            response = requests.get(url, params=params, headers=headers,
-                                  timeout=(5, 15))  # 連接超時5秒，讀取超時15秒
-            response.raise_for_status()
-            data = response.json()
-
+            from .mastercard_scraper import MastercardScraper
+            import os
+            
+            COOKIES_FILE = 'mastercard_cookies.json'
+            
+            # 檢查 cookies 是否存在
+            if not os.path.exists(COOKIES_FILE):
+                print(f"⚠️ 獲取 {buy_currency}-{sell_currency} 失敗：缺少 cookies 文件")
+                print(f"   請運行：python app\\cookie_fetcher.py")
+                return None
+            
+            scraper = MastercardScraper(COOKIES_FILE)
+            data = scraper.get_exchange_rate(date, buy_currency, sell_currency)
+            
             return data
-        except requests.exceptions.RequestException as e:
-            # 觸發熔斷機制
-            with self._pause_lock:
-                if not self._network_paused:
-                    pause_duration = 300  # 暫停 5 分鐘
-                    self._network_paused = True
-                    self._pause_until = time.time() + pause_duration
-                    self._pause_message_printed = False
-                    print(f"‼️ 偵測到網路錯誤，所有請求將暫停 {pause_duration // 60} 分鐘。")
-
-            error_type = "超時" if isinstance(e, requests.exceptions.Timeout) else "網路錯誤"
-            print(f"獲取 {date.strftime('%Y-%m-%d')} 數據時{error_type}: {e}")
-            return None
+            
         except Exception as e:
-            print(f"獲取 {date.strftime('%Y-%m-%d')} 數據時發生錯誤: {e}")
+            print(f"❌ 獲取 {buy_currency}-{sell_currency} 時發生錯誤: {e}")
             return None
 
-    def update_data(self, days=180):  # 默認更新近180天數據
-        """數據更新：從最新日期開始補齊到今天，清理舊數據"""
+    def update_data(self, days=180):
+        """清理舊數據並重新載入（不再從 API 獲取新數據）
+        
+        數據更新由應用啟動邏輯與排程自動完成，無需另外執行外部腳本。
+        """
+        # 如需更新數據，請運行：python update_twd_hkd_data.py
+        
         end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         start_date = end_date - timedelta(days=days)
         
-        print(f"🔍 開始極簡數據更新（從最新日期補齊到今天）...")
+        print(f"🔍 開始清理 {days} 天以外的舊數據...")
         
-        # 第一步：找出並清理180天以外的舊數據
+        # 重新載入數據（可能已被外部腳本更新）
+        self.data = self.load_data()
+        
+        # 清理超過指定天數的舊數據
         old_count = len(self.data)
         cleaned_data = {}
         removed_count = 0
-        removed_dates = []
         
         for date_str, data_entry in self.data.items():
             date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-            # 保留從 start_date 開始的180天數據（包含 start_date）
             if date_obj >= start_date:
-                # 保留180天內的數據
                 cleaned_data[date_str] = data_entry
             else:
-                # 刪除 start_date 之前的數據
-                removed_dates.append(date_str)
                 removed_count += 1
         
-        if removed_count > 0:
-            print(f"🗑️ 清理了 {removed_count} 筆180天以外的舊數據")
-            self.data = cleaned_data
+        self.data = cleaned_data
         
-        # 第二步：找到數據中的最新日期
+        # 顯示數據狀態
         if self.data:
             latest_date_str = max(self.data.keys())
-            latest_date = datetime.strptime(latest_date_str, '%Y-%m-%d')
             print(f"📅 數據中最新日期：{latest_date_str}")
+            print(f"📊 當前數據量：{len(self.data)} 筆")
         else:
-            # 如果沒有數據，從180天前開始
-            latest_date = start_date - timedelta(days=1)
-            print(f"📅 數據為空，從 {days} 天前開始獲取")
+            print(f"⚠️ 沒有本地數據，請運行：python update_twd_hkd_data.py")
         
-        # 第三步：從最新日期的下一天開始獲取到今天
-        start_fetch_date = latest_date + timedelta(days=1)
-        updated_count = 0
-        
-        if start_fetch_date <= end_date:
-            print(f"🚀 從 {start_fetch_date.strftime('%Y-%m-%d')} 獲取到 {end_date.strftime('%Y-%m-%d')}")
-            
-            current_date = start_fetch_date
-            while current_date <= end_date:
-                date_str = current_date.strftime('%Y-%m-%d')
-                
-                # 跳過週末
-                if current_date.weekday() < 5:  # Monday=0, Friday=4
-                    data = self.get_exchange_rate(current_date)
-                    
-                    if data and 'data' in data:
-                        try:
-                            conversion_rate = float(data['data']['conversionRate'])
-                            self.data[date_str] = {
-                                'rate': conversion_rate,
-                                'updated': datetime.now().isoformat()
-                            }
-                            updated_count += 1
-                        except (KeyError, ValueError) as e:
-                            print(f"    ❌ 解析失敗：{e}")
-                    else:
-                        print(f"    ⚠️ 無法獲取 {date_str} 的數據")
-                
-                current_date += timedelta(days=1)
-        else:
-            print("✅ 數據已是最新狀態，無需API請求")
-        
-        # 第四步：保存更新結果
-        if updated_count > 0 or removed_count > 0:
+        # 保存清理結果
+        if removed_count > 0:
             self.save_data()
-            
-            summary_parts = []
-            if updated_count > 0:
-                summary_parts.append(f"新增 {updated_count} 筆最新數據")
-            if removed_count > 0:
-                summary_parts.append(f"清理 {removed_count} 筆舊數據")
-            
-            print(f"💾 極簡更新完成：{', '.join(summary_parts)}")
-        else:
-            print("✅ 數據已是最新狀態，無需更新")
+            print(f"🗑️ 清理了 {removed_count} 筆舊數據")
         
-        return updated_count
+        if removed_count == 0 and old_count > 0:
+            print("✅ 數據已是最新狀態")
+        
+        return 0  # 不再返回更新數量，因為不從 API 獲取
 
     def _fetch_single_rate(self, date, buy_currency, sell_currency, max_retries=1):
         """獲取單一日期的匯率數據（用於並行查詢，含重試機制）"""
@@ -251,6 +210,51 @@ class ExchangeRateManager:
 
         return date_str, None
 
+    def get_live_rates_for_period(self, days, buy_currency, sell_currency):
+        """
+        獲取指定天數的即時匯率數據（使用並發抓取）
+        
+        Args:
+            days: 要獲取的天數
+            buy_currency: 交易貨幣
+            sell_currency: 帳單貨幣
+            
+        Returns:
+            dict: {date_str: rate} 的字典
+        """
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        
+        # 收集所有需要查詢的日期（排除週末）
+        query_dates = []
+        current_date = start_date
+        while current_date <= end_date:
+            if current_date.weekday() < 5:  # Monday=0, Friday=4
+                query_dates.append(current_date)
+            current_date += timedelta(days=1)
+        
+        if not query_dates:
+            print(f"⚠️ {buy_currency}-{sell_currency}: 沒有需要查詢的日期")
+            return {}
+        
+        print(f"🚀 開始並發獲取 {buy_currency}-{sell_currency} 最近 {days} 天的數據（共 {len(query_dates)} 天）")
+        
+        # 使用 ThreadPoolExecutor 並發抓取
+        rates_data = {}
+        with ThreadPoolExecutor(max_workers=5, thread_name_prefix='LiveRateFetch') as executor:
+            future_to_date = {
+                executor.submit(self._fetch_single_rate, d, buy_currency, sell_currency): d 
+                for d in query_dates
+            }
+            
+            for future in as_completed(future_to_date):
+                date_str, rate = future.result()
+                if rate is not None:
+                    rates_data[date_str] = rate
+        
+        print(f"✅ 成功獲取 {len(rates_data)}/{len(query_dates)} 天的數據")
+        return rates_data
+
     def extract_local_rates(self, days):
         """獲取指定天數的匯率數據"""
         end_date = datetime.now()
@@ -272,12 +276,11 @@ class ExchangeRateManager:
 
     def _background_fetch_and_generate(self, buy_currency, sell_currency, flask_app):
         """
-        [REFACTORED]
         非同步抓取180天歷史數據，並在過程中流式生成圖表、發送進度。
         """
         with flask_app.app_context():
             try:
-                print(f"🌀 事件驅動背景任務開始：為 {buy_currency}-{sell_currency} 抓取180天數據。")
+                logger.info(f"🌀 事件驅動背景任務開始：為 {buy_currency}-{sell_currency} 抓取180天數據")
 
                 # 1. 收集日期，從最新到最舊
                 end_date = datetime.now()
@@ -373,7 +376,7 @@ class ExchangeRateManager:
                     print(f"⚠️ 背景任務結束，但有缺漏: 為 {buy_currency}-{sell_currency} 生成了 {len(generated_periods)}/{4} 張圖表。")
 
             except Exception as e:
-                print(f"❌ 背景任務失敗 ({buy_currency}-{sell_currency}): {e}", exc_info=True)
+                logger.error(f"❌ 背景任務失敗 ({buy_currency}-{sell_currency}): {e}", exc_info=True)
             finally:
                 with self._active_fetch_lock:
                     self._active_fetches.discard((buy_currency, sell_currency))
@@ -388,7 +391,29 @@ class ExchangeRateManager:
         if cached_info:
             chart_url = cached_info.get('chart_url', '')
             if chart_url and os.path.exists(os.path.join(self.charts_dir, os.path.basename(chart_url))):
-                return cached_info
+                # 對於 TWD-HKD，額外檢查數據是否有更新
+                if buy_currency == 'TWD' and sell_currency == 'HKD':
+                    # 檢查數據文件的最新日期
+                    if self.data:
+                        sorted_dates = self.get_sorted_dates()
+                        if sorted_dates:
+                            latest_data_date = sorted_dates[-1]
+                            # 從圖表 URL 提取日期（格式：chart_TWD-HKD_180d_2025-12-17_hash.png）
+                            url_parts = chart_url.split('_')
+                            if len(url_parts) >= 4:
+                                cached_date = url_parts[3]  # 2025-12-17
+                                # 如果數據更新了，清除快取重新生成
+                                if latest_data_date > cached_date:
+                                    print(f"🔄 檢測到數據更新（{cached_date} -> {latest_data_date}），重新生成圖表")
+                                    with self.lru_cache.lock:
+                                        if cache_key in self.lru_cache.cache:
+                                            del self.lru_cache.cache[cache_key]
+                                        if cache_key in self.lru_cache.access_order:
+                                            self.lru_cache.access_order.remove(cache_key)
+                                    cached_info = None
+                
+                if cached_info:
+                    return cached_info
 
         # --- 快取未命中 ---
         
@@ -533,18 +558,31 @@ class ExchangeRateManager:
 
         if len(x_indices) > 1:
             locator = MaxNLocator(nbins=nbins, integer=True, min_n_ticks=3)
-            # 獲取自動計算的刻度位置
-            tick_indices = [int(i) for i in locator.tick_values(0, len(x_indices) - 1)]
-
-            # 確保最後一個數據點的索引總是被包含在內
-            last_index = len(x_indices) - 1
-            if last_index not in tick_indices:
-                # 如果最後一個刻度與倒數第二個刻度太近，則移除倒數第二個
-                # (間距小於平均刻度間距的 60%)
-                if tick_indices and last_index - tick_indices[-1] < (len(x_indices) / (nbins + 1)) * 0.6:
-                    tick_indices.pop()
-                tick_indices.append(last_index)
+            # 獲取自動計算的刻度位置，並過濾掉超出範圍的值
+            tick_indices = [int(i) for i in locator.tick_values(0, len(x_indices) - 1) 
+                          if 0 <= i < len(x_indices)]
             
+            # 確保最後一個數據點總是被顯示
+            last_index = len(x_indices) - 1
+            if last_index not in tick_indices and tick_indices:
+                # 計算平均刻度間距
+                if len(tick_indices) > 1:
+                    avg_spacing = (tick_indices[-1] - tick_indices[0]) / (len(tick_indices) - 1)
+                else:
+                    avg_spacing = last_index / max(1, nbins)
+                
+                distance_to_last = last_index - tick_indices[-1]
+                
+                # 策略：如果距離太近（< 40% 平均間距），則替換最後一個刻度
+                # 如果距離適中（>= 40%），則添加最後一個刻度
+                if distance_to_last < avg_spacing * 0.4:
+                    # 距離太近，替換最後一個刻度
+                    tick_indices[-1] = last_index
+                else:
+                    # 距離足夠，直接添加
+                    tick_indices.append(last_index)
+            
+            # 移除重複值並排序
             tick_indices = sorted(list(set(tick_indices)))
 
         elif x_indices:

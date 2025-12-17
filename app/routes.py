@@ -7,6 +7,7 @@ import uuid
 
 from .sse import sse_clients, sse_lock, sse_stream
 from .scheduler import scheduled_update
+from .utils import validate_currency_code, validate_period
 
 bp = Blueprint('main', __name__)
 
@@ -31,10 +32,21 @@ def get_chart():
     buy_currency = request.args.get('buy_currency', 'TWD')
     sell_currency = request.args.get('sell_currency', 'HKD')
 
+    # 驗證 period 參數
     try:
         days = int(period)
     except ValueError:
-        days = 7
+        return jsonify({'error': '無效的 period 參數，必須是整數'}), 400
+    
+    if not validate_period(days):
+        return jsonify({'error': f'無效的時間範圍，僅支援 7, 30, 90, 180 天'}), 400
+    
+    # 驗證貨幣代碼格式
+    if not validate_currency_code(buy_currency):
+        return jsonify({'error': f'無效的買入貨幣代碼格式：{buy_currency}'}), 400
+    
+    if not validate_currency_code(sell_currency):
+        return jsonify({'error': f'無效的賣出貨幣代碼格式：{sell_currency}'}), 400
 
     try:
         chart_data = current_app.manager.create_chart(days, buy_currency, sell_currency)
@@ -75,6 +87,13 @@ def get_latest_rate():
     
     buy_currency = request.args.get('buy_currency', 'TWD')
     sell_currency = request.args.get('sell_currency', 'HKD')
+    
+    # 驗證貨幣代碼格式
+    if not validate_currency_code(buy_currency):
+        return jsonify({'error': f'無效的買入貨幣代碼格式：{buy_currency}'}), 400
+    
+    if not validate_currency_code(sell_currency):
+        return jsonify({'error': f'無效的賣出貨幣代碼格式：{sell_currency}'}), 400
     
     try:
         latest_data = current_app.manager.get_current_rate(buy_currency, sell_currency)
@@ -202,6 +221,13 @@ def pregenerate_charts_api():
     """智能預生成圖表API"""
     buy_currency = request.args.get('buy_currency', 'TWD')
     sell_currency = request.args.get('sell_currency', 'HKD')
+    
+    # 驗證貨幣代碼格式
+    if not validate_currency_code(buy_currency):
+        return jsonify({'error': f'無效的買入貨幣代碼格式：{buy_currency}'}), 400
+    
+    if not validate_currency_code(sell_currency):
+        return jsonify({'error': f'無效的賣出貨幣代碼格式：{sell_currency}'}), 400
     
     try:
         print(f"🚀 API觸發：請求為 {buy_currency}-{sell_currency} 啟動生成/通知流程...")

@@ -187,4 +187,15 @@ class RateLimiter:
                 sleep_time = self.min_interval - time_since_last
                 time.sleep(sleep_time)
 
-            self.last_request_time = time.time() 
+            self.last_request_time = time.time()
+
+
+# 驗證輔助函數
+def validate_currency_code(code: str) -> bool:
+    """驗證貨幣代碼格式（必須是3個大寫字母）"""
+    return isinstance(code, str) and len(code) == 3 and code.isalpha() and code.isupper()
+
+
+def validate_period(period: int) -> bool:
+    """驗證時間週期（僅支援 7, 30, 90, 180 天）"""
+    return period in [7, 30, 90, 180] 

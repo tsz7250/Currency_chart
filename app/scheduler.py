@@ -1,60 +1,58 @@
 import schedule
 import time
+import logging
 from datetime import datetime
 from threading import Thread
 from .sse import send_sse_event
 
+logger = logging.getLogger(__name__)
 _app = None
 
 def scheduled_update():
-    """定時更新匯率資料"""
+    """定時重新載入本地數據
+    
+    數據由應用啟動邏輯與排程自動更新，本函數負責重新載入並通知前端。
+    """
+    
     if not _app:
         return
         
     with _app.app_context():
         manager = _app.manager
         try:
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 開始執行定時更新...")
+            logger.info("開始重新載入本地數據...")
             today = datetime.now()
             today_str = today.strftime('%Y-%m-%d')
 
-            # 檢查今天的資料是否已存在
+            # 重新載入數據（可能已被外部腳本更新）
+            old_count = len(manager.data)
+            manager.data = manager.load_data()
+            new_count = len(manager.data)
+            
+            # 檢查今天的資料是否存在
             if today_str in manager.data:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 今天({today_str})的資料已存在，無需更新")
-                return
+                rate = manager.data[today_str].get('rate')
+                logger.info(f"✅ 找到今天({today_str})的資料: {rate}")
+                
+                # 預生成所有圖表
+                manager.warm_up_chart_cache()
 
-            # 只獲取今天的資料
-            print(f"正在獲取 {today_str} 的匯率資料...")
-            data = manager.get_exchange_rate(today)
-
-            if data and 'data' in data:
-                try:
-                    conversion_rate = float(data['data']['conversionRate'])
-                    manager.data[today_str] = {
-                        'rate': conversion_rate,
-                        'updated': datetime.now().isoformat()
-                    }
-                    manager.save_data()
-                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 定時更新完成，成功獲取今天的匯率: {conversion_rate}")
-
-                    # 預生成所有圖表
-                    manager.warm_up_chart_cache()
-
-                    # 發送SSE事件通知前端更新
-                    send_sse_event('rate_updated', {
-                        'date': today_str,
-                        'rate': conversion_rate,
-                        'updated_time': datetime.now().isoformat(),
-                        'message': f'成功獲取 {today_str} 的匯率資料'
-                    })
-
-                except (KeyError, ValueError) as e:
-                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 解析今天的資料時發生錯誤: {e}")
+                # 發送SSE事件通知前端更新
+                send_sse_event('rate_updated', {
+                    'date': today_str,
+                    'rate': rate,
+                    'updated_time': datetime.now().isoformat(),
+                    'message': f'已載入 {today_str} 的匯率資料'
+                })
             else:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 無法獲取今天的匯率資料")
+                logger.warning(f"⚠️ 本地數據中沒有今天的資料")
+                logger.info("系統將在之後的啟動或排程中繼續嘗試更新（請檢查網路與 cookies 狀態）")
+            
+            if new_count != old_count:
+                logger.info(f"數據量變化：{old_count} → {new_count}")
 
         except Exception as e:
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 定時更新失敗: {str(e)}")
+            logger.error(f"重新載入數據失敗: {str(e)}", exc_info=True)
 
 def clear_cache_with_context():
     """帶上下文清理緩存"""
@@ -79,4 +77,4 @@ def init_scheduler(app):
     
     scheduler_thread = Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
-    print("✅ 定時任務已啟動。") 
+    logger.info("✅ 定時任務已啟動") 

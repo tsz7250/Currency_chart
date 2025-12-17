@@ -12,6 +12,7 @@
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+playwright install chromium
 ```
 
 2) 啟動服務
@@ -23,7 +24,10 @@ python run.py
 3) 開啟瀏覽器
 - http://127.0.0.1:5000/
 
-提示：第一次啟動會下載/整理資料並預先產生圖表，可能需要一些時間。
+**✨ 智能自動化：**
+- 首次啟動會自動檢查並更新匯率數據
+- 如需獲取 Cookies，會自動顯示瀏覽器窗口約 10 秒
+- 一切都是自動的，只需運行 `python run.py`！
 
 ## 如何使用
 - 上方選擇「近 1 週／1 個月／3 個月／6 個月」切換期間
