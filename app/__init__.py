@@ -11,11 +11,6 @@ from .exchange_rate_manager import ExchangeRateManager
 from .scheduler import init_scheduler
 
 
-class Config:
-    """應用程式設定"""
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev')
-
-
 def should_cleanup_today():
     """檢查今天是否需要清理日誌（檢查是否已有今天的日誌）"""
     if not os.path.exists('app.log'):
@@ -274,9 +269,6 @@ def create_app():
     matplotlib.use('Agg')
 
     app = Flask(__name__, static_folder='../static', template_folder='../templates')
-    
-    # 從物件設定 Flask 應用程式
-    app.config.from_object(Config)
     
     # 設置日誌系統
     setup_logging(app)

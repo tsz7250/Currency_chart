@@ -513,9 +513,15 @@ class ExchangeRateManager:
         if not all_dates_str or not all_rates:
             return None
 
-        # 生成可讀性更高且唯一的檔名
+        # 生成可讀性更高且唯一的檔名（使用關鍵資訊而非全部資料以提升效能）
         latest_date_str = all_dates_str[-1] if all_dates_str else "nodate"
-        data_str = f"{days}-{buy_currency}-{sell_currency}-{''.join(all_dates_str)}-{''.join(map(str, all_rates))}"
+        first_date_str = all_dates_str[0] if all_dates_str else "nodate"
+        first_rate = all_rates[0] if all_rates else 0
+        last_rate = all_rates[-1] if all_rates else 0
+        data_count = len(all_dates_str)
+        
+        # 輕量級雜湊字串：只使用關鍵資訊確保唯一性
+        data_str = f"{days}-{buy_currency}-{sell_currency}-{first_date_str}-{latest_date_str}-{data_count}-{first_rate}-{last_rate}"
         chart_hash = hashlib.md5(data_str.encode('utf-8')).hexdigest()
         filename = f"chart_{buy_currency}-{sell_currency}_{days}d_{latest_date_str}_{chart_hash[:8]}.png"
 
