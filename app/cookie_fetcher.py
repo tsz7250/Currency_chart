@@ -116,9 +116,10 @@ class CookieFetcher:
                 # 訪問 API 端點獲取更完整的 cookies
                 api_success = False
                 try:
-                    from datetime import datetime
-                    today = datetime.now().strftime('%Y-%m-%d')
-                    api_url = f"https://www.mastercard.com/marketingservices/public/mccom-services/currency-conversions/conversion-rates?exchange_date={today}&transaction_currency=TWD&cardholder_billing_currency=HKD&bank_fee=0&transaction_amount=1"
+                    from datetime import datetime, timedelta
+                    today = datetime.now()
+                    yesterday = (today - timedelta(days=1)).strftime('%Y-%m-%d')
+                    api_url = f"https://www.mastercard.com/marketingservices/public/mccom-services/currency-conversions/conversion-rates?exchange_date={yesterday}&transaction_currency=TWD&cardholder_billing_currency=HKD&bank_fee=0&transaction_amount=1"
                     print(f"[CookieFetcher] 步驟 2: 訪問 API 端點...")
                     
                     response = await page.goto(api_url, wait_until='load', timeout=30000)

@@ -33,14 +33,7 @@ class MastercardScraper:
                 for cookie in cookies_list
             }
             
-            print(f"[Scraper] 已載入 {len(self.cookies_dict)} 個 cookies")
-            
-            # 顯示關鍵 cookies
-            key_cookies = ['_abck', 'bm_sz', 'bm_sv']
-            for key in key_cookies:
-                if key in self.cookies_dict:
-                    print(f"  - {key}: {self.cookies_dict[key][:30]}...")
-            
+            print(f"[Scraper] ✓ 已載入 {len(self.cookies_dict)} 個 cookies")
             return True
         except FileNotFoundError:
             print(f"[Scraper] 錯誤：找不到 {self.cookies_file}")
@@ -90,12 +83,12 @@ class MastercardScraper:
             'TE': 'trailers'
         }
         
+        date_str = date.strftime('%Y-%m-%d')
+        
         try:
             # 添加隨機延遲
-            delay = random.uniform(1.0, 3.0)
+            delay = random.uniform(0.5, 1.0)
             time.sleep(delay)
-            
-            print(f"[Scraper] 正在請求 {date.strftime('%Y-%m-%d')} 的數據...")
             
             response = requests.get(
                 url,
@@ -105,23 +98,38 @@ class MastercardScraper:
                 timeout=15
             )
             
-            print(f"[Scraper] HTTP {response.status_code}")
-            
             if response.status_code == 200:
                 data = response.json()
-                print(f"[Scraper] 成功獲取數據")
+                print(f"[Scraper] ✓ {date_str}")
                 return data
             elif response.status_code == 403:
-                print(f"[Scraper] 403 錯誤：cookies 可能已過期")
-                print(f"[Scraper] 請重新從瀏覽器導出新的 cookies")
-                return None
+                print(f"[Scraper] ✗ {date_str}: HTTP 403 - cookies 可能已過期，請重新從瀏覽器導出")
+                return {'error': 'rate_limited', 'status_code': 403}
+            elif response.status_code == 400:
+                # 檢查是否是「數據不存在」的錯誤（錯誤碼 114）
+                try:
+                    error_data = response.json()
+                    error_code = error_data.get('data', {}).get('errorCode')
+                    if error_code == '114':
+                        # 錯誤碼 114 表示該日期沒有匯率數據（正常情況，不顯示）
+                        return {'error': 'not_found', 'status_code': 400, 'error_code': '114'}
+                    else:
+                        # 其他 400 錯誤
+                        error_msg = error_data.get('data', {}).get('errorMessage', 'Unknown error')
+                        print(f"[Scraper] ✗ {date_str}: HTTP 400 - {error_msg[:50]}")
+                        return {'error': 'other', 'status_code': response.status_code}
+                except:
+                    print(f"[Scraper] ✗ {date_str}: HTTP 400")
+                    return {'error': 'other', 'status_code': response.status_code}
+            elif response.status_code == 401:
+                print(f"[Scraper] ✗ {date_str}: HTTP 401 - 未授權")
+                return {'error': 'unauthorized', 'status_code': 401}
             else:
-                print(f"[Scraper] 錯誤：HTTP {response.status_code}")
-                print(f"[Scraper] 響應: {response.text[:200]}")
-                return None
+                print(f"[Scraper] ✗ {date_str}: HTTP {response.status_code}")
+                return {'error': 'other', 'status_code': response.status_code}
         
         except Exception as e:
-            print(f"[Scraper] 發生錯誤: {e}")
+            print(f"[Scraper] ✗ {date_str}: 發生錯誤 - {e}")
             return None
     
     def update_local_data(self, data_file='TWD-HKD_180d.json', days=180):

@@ -7,6 +7,7 @@ import logging
 import matplotlib
 import matplotlib.font_manager as fm
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from .exchange_rate_manager import ExchangeRateManager
 from .scheduler import init_scheduler
 
@@ -158,7 +159,7 @@ def auto_update_data():
             print("      python app\\cookie_fetcher.py")
             return
     
-    # 使用 scraper 更新數據
+    # 使用 scraper 更新數據（並發版本）
     print("🔄 正在更新匯率數據...")
     try:
         scraper = MastercardScraper(COOKIES_FILE)
@@ -173,92 +174,121 @@ def auto_update_data():
             latest_date = today - timedelta(days=181)
             print(f"   本地無數據，將獲取最近 180 天")
         
+        # 收集需要更新的日期（排除週末和已有數據）
         start_fetch_date = latest_date + timedelta(days=1)
+        dates_to_fetch = []
         current_date = start_fetch_date
-        updated_count = 0
-        failed_count = 0
-        
-        cookies_refreshed = False  # 標記是否已經嘗試過刷新 cookies
-        
         while current_date <= today:
             if current_date.weekday() < 5:  # 只更新工作日
                 date_str = current_date.strftime('%Y-%m-%d')
                 if date_str not in local_data:
-                    data = scraper.get_exchange_rate(current_date)
+                    dates_to_fetch.append(current_date)
+            current_date += timedelta(days=1)
+        
+        if not dates_to_fetch:
+            print("✅ 數據已是最新，無需更新")
+        else:
+            print(f"🚀 開始並發抓取 {len(dates_to_fetch)} 個日期的數據...")
+            
+            # 定義單個日期的抓取函數
+            def fetch_single_date(date_obj):
+                try:
+                    data = scraper.get_exchange_rate(date_obj)
+                    date_str = date_obj.strftime('%Y-%m-%d')
                     
                     if data and 'data' in data and 'conversionRate' in data['data']:
                         try:
                             rate = float(data['data']['conversionRate'])
-                            local_data[date_str] = {
-                                'rate': rate,
-                                'updated': datetime.now().isoformat()
-                            }
-                            print(f"   ✅ {date_str}: {rate}")
-                            updated_count += 1
-                            failed_count = 0  # 成功後重置失敗計數
-                            
-                            # 隨機延遲 1-2 秒，避免請求過快
-                            time.sleep(random.uniform(1, 2))
+                            return (date_str, rate, None)
                         except (KeyError, ValueError) as e:
-                            print(f"   ❌ 解析 {date_str} 失敗: {e}")
-                            failed_count += 1
+                            return (date_str, None, f"解析失敗: {e}")
                     else:
-                        print(f"   ⚠️ 無法獲取 {date_str}")
-                        failed_count += 1
-                        
-                        # 如果失敗且還沒有嘗試過刷新 cookies，立即嘗試刷新
-                        if not cookies_refreshed and failed_count >= 1:
-                            print("   🍪 檢測到獲取失敗，可能是 Cookies 過期")
-                            print("   ⏰ 正在自動重新獲取 Cookies（瀏覽器將顯示約 10 秒）...")
-                            try:
-                                fetcher = CookieFetcher(COOKIES_FILE)
-                                success = fetcher.fetch_and_save(headless=False, wait_time=10)
-                                if success:
-                                    print("   ✅ Cookies 更新成功，重新嘗試獲取數據...")
-                                    scraper = MastercardScraper(COOKIES_FILE)  # 重新載入 cookies
-                                    failed_count = 0  # 重置失敗計數
-                                    cookies_refreshed = True  # 標記已刷新
-                                    
-                                    # 重新嘗試獲取當前日期的數據
-                                    data = scraper.get_exchange_rate(current_date)
-                                    if data and 'data' in data and 'conversionRate' in data['data']:
-                                        try:
-                                            rate = float(data['data']['conversionRate'])
-                                            local_data[date_str] = {
-                                                'rate': rate,
-                                                'updated': datetime.now().isoformat()
-                                            }
-                                            print(f"   ✅ {date_str}: {rate}")
-                                            updated_count += 1
-                                        except (KeyError, ValueError) as e:
-                                            print(f"   ❌ 重試後解析 {date_str} 仍然失敗: {e}")
-                                    else:
-                                        print(f"   ⚠️ 即使更新 cookies 後仍無法獲取 {date_str}")
-                                else:
-                                    print("   ❌ 無法重新獲取 cookies，停止更新")
-                                    print("   💡 請手動運行: python app/cookie_fetcher.py")
-                                    break
-                            except Exception as e:
-                                print(f"   ❌ 重新獲取 cookies 時發生錯誤: {e}")
-                                print("   💡 請手動運行: python app/cookie_fetcher.py")
-                                break
-                        elif cookies_refreshed and failed_count >= 2:
-                            # 如果已經刷新過 cookies 但還是連續失敗，停止更新
-                            print("   ❌ 即使更新 cookies 後仍連續失敗，停止更新")
-                            print("   💡 可能是網站維護或其他問題，請稍後重試")
-                            break
+                        return (date_str, None, "API 未返回有效數據")
+                except Exception as e:
+                    return (date_obj.strftime('%Y-%m-%d'), None, f"請求失敗: {e}")
             
-            current_date += timedelta(days=1)
-        
-        # 保存更新的數據
-        if updated_count > 0:
-            with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                json.dump(local_data, f, ensure_ascii=False, indent=2)
-            print(f"💾 已保存 {updated_count} 筆新數據到 {DATA_FILE}")
-            print(f"✅ 數據更新完成！")
-        else:
-            print("⚠️ 沒有獲取到新數據")
-            print("   💡 提示：請檢查網路連接或稍後再試（系統會在下次啟動或排程時自動重試）")
+            # 並發抓取數據
+            updated_count = 0
+            failed_count = 0
+            
+            with ThreadPoolExecutor(max_workers=12, thread_name_prefix='StartupFetch') as executor:
+                # 提交所有任務
+                future_to_date = {executor.submit(fetch_single_date, d): d for d in dates_to_fetch}
+                
+                # 收集結果
+                for future in as_completed(future_to_date):
+                    date_str, rate, error = future.result()
+                    
+                    if rate is not None:
+                        local_data[date_str] = {
+                            'rate': rate,
+                            'updated': datetime.now().isoformat()
+                        }
+                        print(f"   ✅ {date_str}: {rate}")
+                        updated_count += 1
+                    else:
+                        print(f"   ❌ {date_str}: {error}")
+                        failed_count += 1
+            
+            # 如果有太多失敗，可能是 cookies 過期
+            if failed_count > 0 and updated_count == 0:
+                print(f"   ⚠️ 所有請求都失敗了，可能是 cookies 過期")
+                print("   🍪 嘗試自動重新獲取 Cookies...")
+                try:
+                    fetcher = CookieFetcher(COOKIES_FILE)
+                    success = fetcher.fetch_and_save(headless=False, wait_time=10)
+                    if success:
+                        print("   ✅ Cookies 更新成功，正在重新嘗試抓取數據...")
+                        
+                        # 重新載入 cookies 並重試
+                        scraper.load_cookies()
+                        
+                        # 重置計數器
+                        updated_count = 0
+                        failed_count = 0
+                        
+                        # 使用新 cookies 重新抓取
+                        with ThreadPoolExecutor(max_workers=12, thread_name_prefix='RetryFetch') as executor:
+                            future_to_date = {executor.submit(fetch_single_date, d): d for d in dates_to_fetch}
+                            
+                            for future in as_completed(future_to_date):
+                                date_str, rate, error = future.result()
+                                
+                                if rate is not None:
+                                    local_data[date_str] = {
+                                        'rate': rate,
+                                        'updated': datetime.now().isoformat()
+                                    }
+                                    print(f"   ✅ {date_str}: {rate}")
+                                    updated_count += 1
+                                else:
+                                    print(f"   ❌ {date_str}: {error}")
+                                    failed_count += 1
+                        
+                        if updated_count > 0:
+                            print(f"   🎉 使用新 Cookies 成功獲取 {updated_count} 筆數據")
+                        else:
+                            print("   ⚠️ 使用新 Cookies 仍然無法獲取數據，可能是其他問題")
+                    else:
+                        print("   ❌ 無法重新獲取 cookies")
+                        print("   💡 請手動運行: python app/cookie_fetcher.py")
+                except Exception as e:
+                    print(f"   ❌ 重新獲取 cookies 時發生錯誤: {e}")
+                    print("   💡 請手動運行: python app/cookie_fetcher.py")
+            
+            # 保存更新的數據
+            if updated_count > 0:
+                # 按日期排序後再保存
+                sorted_data = dict(sorted(local_data.items(), key=lambda x: x[0]))
+                with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(sorted_data, f, ensure_ascii=False, indent=2)
+                print(f"💾 已保存 {updated_count} 筆新數據到 {DATA_FILE}")
+                if failed_count > 0:
+                    print(f"⚠️ 有 {failed_count} 筆數據獲取失敗")
+                print(f"✅ 數據更新完成！")
+            else:
+                print("⚠️ 沒有獲取到新數據")
+                print("   💡 提示：請檢查網路連接或稍後再試（系統會在下次啟動或排程時自動重試）")
             
     except Exception as e:
         print(f"❌ 更新數據時發生錯誤: {e}")
@@ -338,7 +368,6 @@ def create_app():
     # 註冊信號處理器（處理 Ctrl+C 等）
     def signal_handler(sig, frame):
         print("\n🛑 收到終止信號...")
-        cleanup_on_exit()
         sys.exit(0)
     
     signal.signal(signal.SIGINT, signal_handler)

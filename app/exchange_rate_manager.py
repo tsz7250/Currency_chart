@@ -43,12 +43,16 @@ class ExchangeRateManager:
         self.latest_rate_cache = LRUCache(capacity=50, ttl_seconds=86400) # 24 hours
 
         # 新增：用於協調背景抓取的屬性
-        self.background_executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix='ChartGen')
+        self.background_executor = ThreadPoolExecutor(max_workers=12, thread_name_prefix='ChartGen')
         self._active_fetch_lock = Lock()
         self._active_fetches = set()
 
         # 主數據鎖
         self.data_lock = Lock()
+        
+        # 共享的 scraper 實例（延遲初始化，避免重複載入 cookies）
+        self._shared_scraper = None
+        self._scraper_lock = Lock()
 
     def load_data(self):
         """載入本地數據"""
@@ -77,7 +81,7 @@ class ExchangeRateManager:
         """清理資源"""
         if hasattr(self, 'background_executor'):
             print("🛑 正在關閉 ThreadPoolExecutor...")
-            self.background_executor.shutdown(wait=True, timeout=10)
+            self.background_executor.shutdown(wait=False)
             print("✅ ThreadPoolExecutor 已關閉")
     
     def __enter__(self):
@@ -88,7 +92,14 @@ class ExchangeRateManager:
         """上下文管理器退出時清理"""
         self.shutdown()
 
-    
+    def _get_or_create_scraper(self):
+        """獲取或創建共享的 scraper 實例（線程安全，避免重複載入 cookies）"""
+        if self._shared_scraper is None:
+            with self._scraper_lock:
+                if self._shared_scraper is None:
+                    from .mastercard_scraper import MastercardScraper
+                    self._shared_scraper = MastercardScraper('mastercard_cookies.json')
+        return self._shared_scraper
 
     def get_exchange_rate(self, date, buy_currency='TWD', sell_currency='HKD'):
         """
@@ -113,7 +124,6 @@ class ExchangeRateManager:
         
         # 其他貨幣對：使用 mastercard_scraper 實時獲取
         try:
-            from .mastercard_scraper import MastercardScraper
             import os
             
             COOKIES_FILE = 'mastercard_cookies.json'
@@ -124,7 +134,8 @@ class ExchangeRateManager:
                 print(f"   請運行：python app\\cookie_fetcher.py")
                 return None
             
-            scraper = MastercardScraper(COOKIES_FILE)
+            # 使用共享的 scraper 實例（避免每次都重新載入 cookies）
+            scraper = self._get_or_create_scraper()
             data = scraper.get_exchange_rate(date, buy_currency, sell_currency)
             
             return data
@@ -181,20 +192,40 @@ class ExchangeRateManager:
         return 0  # 不再返回更新數量，因為不從 API 獲取
 
     def _fetch_single_rate(self, date, buy_currency, sell_currency, max_retries=1):
-        """獲取單一日期的匯率數據（用於並行查詢，含重試機制）"""
+        """獲取單一日期的匯率數據（用於並行查詢，含重試機制）
+        
+        Returns:
+            tuple: (date_str, rate, error_type)
+                - rate: float or None
+                - error_type: None（成功）, 'rate_limited'（限流）, 'not_found'（數據不存在）, 'other'（其他錯誤）
+        """
         date_str = date.strftime('%Y-%m-%d')
 
         for attempt in range(max_retries):
             try:
                 data = self.get_exchange_rate(date, buy_currency, sell_currency)
 
-                if data and 'data' in data:
+                # 成功獲取數據
+                if data and 'data' in data and 'conversionRate' in data['data']:
                     conversion_rate = float(data['data']['conversionRate'])
-                    return date_str, conversion_rate
+                    return date_str, conversion_rate, None
 
-                # 如果 get_exchange_rate 回傳 None (網路暫停或已處理的錯誤)，直接返回
+                # 檢查是否有錯誤類型
+                if data and 'error' in data:
+                    error_type = data['error']
+                    # 對於「數據不存在」的情況，不視為錯誤
+                    if error_type == 'not_found':
+                        return date_str, None, 'not_found'
+                    # 對於限流，立即返回
+                    elif error_type == 'rate_limited':
+                        return date_str, None, 'rate_limited'
+                    # 其他錯誤
+                    else:
+                        return date_str, None, error_type
+
+                # 如果 get_exchange_rate 回傳 None（舊版行為）
                 if data is None:
-                    return date_str, None
+                    return date_str, None, 'other'
 
                 # 如果 API 回傳的 JSON 結構不完整，但不是網路錯誤
                 if attempt < max_retries - 1:
@@ -202,30 +233,31 @@ class ExchangeRateManager:
                     time.sleep(1)  # 等待1秒後重試
                     continue
                 else:
-                    return date_str, None
+                    return date_str, None, 'other'
 
             except Exception as e:
                 print(f"❌ {date_str}: 未知錯誤 - {e}")
-                return date_str, None
+                return date_str, None, 'other'
 
-        return date_str, None
+        return date_str, None, 'other'
 
     def get_live_rates_for_period(self, days, buy_currency, sell_currency):
         """
         獲取指定天數的即時匯率數據（使用並發抓取）
         
         Args:
-            days: 要獲取的天數
+            days: 要獲取的天數（過去N天，包括今天）
             buy_currency: 交易貨幣
             sell_currency: 帳單貨幣
             
         Returns:
             dict: {date_str: rate} 的字典
         """
-        end_date = datetime.now()
+        # 標準化為當天的開始時間，確保日期比較準確
+        end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         start_date = end_date - timedelta(days=days)
         
-        # 收集所有需要查詢的日期（排除週末）
+        # 收集所有需要查詢的日期（排除週末，包含今天）
         query_dates = []
         current_date = start_date
         while current_date <= end_date:
@@ -241,14 +273,14 @@ class ExchangeRateManager:
         
         # 使用 ThreadPoolExecutor 並發抓取
         rates_data = {}
-        with ThreadPoolExecutor(max_workers=5, thread_name_prefix='LiveRateFetch') as executor:
+        with ThreadPoolExecutor(max_workers=12, thread_name_prefix='LiveRateFetch') as executor:
             future_to_date = {
                 executor.submit(self._fetch_single_rate, d, buy_currency, sell_currency): d 
                 for d in query_dates
             }
             
             for future in as_completed(future_to_date):
-                date_str, rate = future.result()
+                date_str, rate, error_type = future.result()
                 if rate is not None:
                     rates_data[date_str] = rate
         
@@ -256,20 +288,35 @@ class ExchangeRateManager:
         return rates_data
 
     def extract_local_rates(self, days):
-        """獲取指定天數的匯率數據"""
-        end_date = datetime.now()
+        """獲取指定天數的匯率數據（只包含工作日，跳過週六週日）
+        
+        例如：days=7 表示過去7天（包括今天），即從 (今天-6天) 到 今天
+        但只會返回工作日的數據（週一至週五）
+        """
+        # 標準化為當天的開始時間（00:00:00），確保日期比較準確
+        end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         start_date = end_date - timedelta(days=days)
+
+        # 動態判斷：若今天的數據已存在且有效，則包含今天；否則只到昨天
+        today_str = end_date.strftime('%Y-%m-%d')
+        if today_str in self.data and self.data[today_str].get('rate') is not None:
+            end_date_inclusive = end_date
+        else:
+            end_date_inclusive = end_date - timedelta(days=1)
 
         dates = []
         rates = []
 
         current_date = start_date
-        while current_date <= end_date:
-            date_str = current_date.strftime('%Y-%m-%d')
-            if date_str in self.data:
-                dates.append(current_date)
-                # 顯示 1/rate，即 1 港幣等於多少台幣
-                rates.append(self.data[date_str]['rate'])
+        while current_date <= end_date_inclusive:
+            # 跳過週六（5）和週日（6），只處理工作日（週一=0 至 週五=4）
+            if current_date.weekday() < 5:
+                date_str = current_date.strftime('%Y-%m-%d')
+                if date_str in self.data:
+                    rate = self.data[date_str].get('rate')
+                    if rate is not None:
+                        dates.append(current_date)
+                        rates.append(rate)
             current_date += timedelta(days=1)
 
         return dates, rates
@@ -282,8 +329,8 @@ class ExchangeRateManager:
             try:
                 logger.info(f"🌀 事件驅動背景任務開始：為 {buy_currency}-{sell_currency} 抓取180天數據")
 
-                # 1. 收集日期，從最新到最舊
-                end_date = datetime.now()
+                # 1. 收集日期，從最新到最舊（標準化為當天的開始時間）
+                end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
                 start_date = end_date - timedelta(days=180)
                 query_dates = sorted([d for d in (end_date - timedelta(days=i) for i in range(181)) if d.weekday() < 5], reverse=True)
                 total_days_to_fetch = len(query_dates)
@@ -296,17 +343,64 @@ class ExchangeRateManager:
                 rates_data = {}
                 fetched_count = 0
                 generated_periods = set()
-                chart_generation_checkpoints = {7: 5, 30: 21, 90: 65, 180: 129}
+                
+                # 動態計算每個週期範圍內的工作日數量（作為生成圖表的最小門檻）
+                def calculate_workdays_in_range(days):
+                    """計算指定天數範圍內的工作日數量（不包含今天，因為今天的數據可能還未出來）"""
+                    # 從 days 天前開始，到昨天為止（不包含今天）
+                    start = end_date - timedelta(days=days)
+                    end = end_date - timedelta(days=1)
+                    workdays = sum(1 for i in range(days) if (start + timedelta(days=i)).weekday() < 5)
+                    return workdays
+                
+                # 7/30/90 天：門檻 100%
+                # 180 天：門檻等於 90 天（因為 180 天肯定比 90 天多，如果連 90 天數據都不夠就不生成）
+                chart_generation_checkpoints = {
+                    7: calculate_workdays_in_range(7),      # 100% 工作日
+                    30: calculate_workdays_in_range(30),    # 100% 工作日
+                    90: calculate_workdays_in_range(90),    # 100% 工作日
+                    180: calculate_workdays_in_range(90)    # 門檻等於 90 天
+                }
+                
+                # 顯示動態計算的門檻值
+                print(f"📊 圖表生成門檻: {chart_generation_checkpoints}")
+                
+                # 早期停止機制：只監控真正的限流錯誤（HTTP 403），不包括「數據不存在」（HTTP 400 錯誤碼 114）
+                consecutive_rate_limit_failures = 0
+                max_consecutive_rate_limit_failures = 10
 
                 # 3. 並行抓取
-                with ThreadPoolExecutor(max_workers=5, thread_name_prefix='RateFetch') as executor:
+                with ThreadPoolExecutor(max_workers=12, thread_name_prefix='RateFetch') as executor:
                     future_to_date = {executor.submit(self._fetch_single_rate, d, buy_currency, sell_currency): d for d in query_dates}
                     
                     for future in as_completed(future_to_date):
-                        date_str, rate = future.result()
+                        date_str, rate, error_type = future.result()
                         fetched_count += 1
+                        
                         if rate is not None:
                             rates_data[date_str] = rate
+                            consecutive_rate_limit_failures = 0  # 成功時重置計數器
+                        else:
+                            # 只對真正的限流錯誤（403）計數，不包括「數據不存在」（400 錯誤碼 114）
+                            if error_type == 'rate_limited':
+                                consecutive_rate_limit_failures += 1
+                                
+                                # 檢測到連續限流，立即停止
+                                if consecutive_rate_limit_failures >= max_consecutive_rate_limit_failures:
+                                    print(f"🚫 檢測到連續 {consecutive_rate_limit_failures} 次限流錯誤（HTTP 403）")
+                                    print(f"   已抓取 {len(rates_data)} 筆數據，停止剩餘請求以避免延長限流時間")
+                                    print(f"   建議：等待 30-60 分鐘後再重試")
+                                    
+                                    # 取消所有未完成的任務
+                                    for f in future_to_date:
+                                        f.cancel()
+                                    break
+                            elif error_type == 'not_found':
+                                # 數據不存在是正常情況，重置限流計數器
+                                consecutive_rate_limit_failures = 0
+                            else:
+                                # 其他錯誤（401, 網絡錯誤等），不重置計數器但也不增加
+                                pass
 
                         # 發送進度更新（加入各 period 進度）
                         progress = int((fetched_count / total_days_to_fetch) * 100)
@@ -331,17 +425,26 @@ class ExchangeRateManager:
                             'period_needed': period_needed
                         })
 
-                        # 4. 帶前置條件的漸進式生成
+                        # 4. 帶前置條件的漸進式生成（180 天圖表等所有數據抓取完畢後再生成）
                         for period in chart_generation_checkpoints:
-                            if period not in generated_periods and len(rates_data) >= chart_generation_checkpoints[period]:
-                                # 檢查是否有足夠時間範圍的數據
-                                required_start_date = end_date - timedelta(days=period)
-                                has_relevant_data = any(datetime.strptime(d, '%Y-%m-%d') >= required_start_date for d in rates_data)
+                            # 180 天圖表需要最完整的歷史數據，在最終補全時生成
+                            if period == 180:
+                                continue
+                            
+                            if period not in generated_periods:
+                                min_points_needed = chart_generation_checkpoints[period]
                                 
-                                if has_relevant_data:
+                                # 檢查「該週期範圍內」是否有足夠的數據點（包含今天）
+                                required_start_date = end_date - timedelta(days=period)
+                                required_end_date = end_date
+                                points_in_range = [d for d in rates_data.keys() 
+                                                  if required_start_date <= datetime.strptime(d, '%Y-%m-%d') <= required_end_date]
+                                
+                                # 只有當該週期範圍內有足夠數據點時才生成圖表
+                                if len(points_in_range) >= min_points_needed:
                                     chart_info = self.build_chart_with_cache(period, buy_currency, sell_currency, live_rates_data=rates_data)
                                     if chart_info:
-                                        print(f"✅ 背景任務：成功生成並快取了 {period} 天圖表。")
+                                        print(f"✅ 背景任務：成功生成並快取了 {period} 天圖表（範圍內 {len(points_in_range)} 筆數據）。")
                                         generated_periods.add(period)
                                         # 修正：傳送前端期望的扁平化資料結構
                                         send_sse_event('chart_ready', {
@@ -355,25 +458,75 @@ class ExchangeRateManager:
                 # 5. 最終補全
                 final_periods_to_generate = set(chart_generation_checkpoints.keys()) - generated_periods
                 if final_periods_to_generate:
-                    print(f"背景任務：獲取完所有數據，嘗試補全未生成的圖表: {final_periods_to_generate}")
-                    for period in final_periods_to_generate:
-                        chart_info = self.build_chart_with_cache(period, buy_currency, sell_currency, live_rates_data=rates_data)
-                        if chart_info:
-                            generated_periods.add(period)
-                            # 修正：傳送前端期望的扁平化資料結構
-                            send_sse_event('chart_ready', {
-                                'buy_currency': buy_currency,
-                                'sell_currency': sell_currency,
-                                'period': period,
-                                'chart_url': chart_info['chart_url'],
-                                'stats': chart_info['stats']
-                            })
+                    # 檢查是否有足夠數據（避免在限流時發起無效請求）
+                    if len(rates_data) < 5:
+                        print(f"⚠️ 數據不足（僅 {len(rates_data)} 筆），跳過圖表補全以避免再次觸發限流")
+                        print(f"   未生成的圖表: {final_periods_to_generate}")
+                    else:
+                        print(f"背景任務：獲取完所有數據，嘗試補全未生成的圖表: {final_periods_to_generate}")
+                        # 按週期從小到大排序（7, 30, 90, 180）
+                        sorted_periods = sorted(final_periods_to_generate)
+                        
+                        for period in sorted_periods:
+                            min_points_needed = chart_generation_checkpoints.get(period, 0)
+                            
+                            # 180 天圖表特殊處理：門檻等於 90 天（正常一定要比 90 天多），用所有能抓到的數據生成
+                            if period == 180:
+                                if len(rates_data) >= min_points_needed:
+                                    chart_info = self.build_chart_with_cache(period, buy_currency, sell_currency, live_rates_data=rates_data)
+                                    if chart_info:
+                                        print(f"✅ 背景任務：成功生成並快取了 {period} 天圖表（使用全部 {len(rates_data)} 筆數據）。")
+                                        generated_periods.add(period)
+                                        send_sse_event('chart_ready', {
+                                            'buy_currency': buy_currency,
+                                            'sell_currency': sell_currency,
+                                            'period': period,
+                                            'chart_url': chart_info['chart_url'],
+                                            'stats': chart_info['stats']
+                                        })
+                                else:
+                                    print(f"   跳過 {period} 天圖表（需要至少 {min_points_needed} 筆，僅有 {len(rates_data)} 筆）")
+                                continue
+                            
+                            # 7/30/90 天圖表：檢查「該週期範圍內」是否有足夠的數據點（包含今天）
+                            required_start_date = end_date - timedelta(days=period)
+                            required_end_date = end_date
+                            points_in_range = [d for d in rates_data.keys() 
+                                              if required_start_date <= datetime.strptime(d, '%Y-%m-%d') <= required_end_date]
+                            
+                            if len(points_in_range) >= min_points_needed:
+                                chart_info = self.build_chart_with_cache(period, buy_currency, sell_currency, live_rates_data=rates_data)
+                                if chart_info:
+                                    print(f"✅ 背景任務：成功生成並快取了 {period} 天圖表（範圍內 {len(points_in_range)} 筆數據）。")
+                                    generated_periods.add(period)
+                                    send_sse_event('chart_ready', {
+                                        'buy_currency': buy_currency,
+                                        'sell_currency': sell_currency,
+                                        'period': period,
+                                        'chart_url': chart_info['chart_url'],
+                                        'stats': chart_info['stats']
+                                    })
+                                else:
+                                    # 如果 7 天圖表都無法生成，其他更長週期也不可能成功
+                                    if period == 7:
+                                        print(f"   ⚠️ 7 天圖表生成失敗，跳過剩餘所有圖表")
+                                        break
+                            else:
+                                print(f"   跳過 {period} 天圖表（範圍內需要 {min_points_needed} 筆，僅有 {len(points_in_range)} 筆）")
+                                # 如果連 7 天都數據不足，其他更長週期也不可能足夠
+                                if period == 7:
+                                    print(f"   ⚠️ 連 7 天圖表都數據不足，跳過剩餘所有圖表")
+                                    break
 
                 # 6. 最終日誌
                 if len(generated_periods) == 4:
-                    print(f"✅ 背景任務圓滿完成: {buy_currency}-{sell_currency} 的全部4張圖表均已生成。")
+                    print(f"✅ 背景任務圓滿完成: {buy_currency}-{sell_currency} 的全部 4 張圖表均已生成（共 {len(rates_data)} 筆數據）。")
                 else:
-                    print(f"⚠️ 背景任務結束，但有缺漏: 為 {buy_currency}-{sell_currency} 生成了 {len(generated_periods)}/{4} 張圖表。")
+                    missing_periods = set([7, 30, 90, 180]) - generated_periods
+                    if 180 in missing_periods and len(missing_periods) == 1:
+                        print(f"✅ 背景任務完成: {buy_currency}-{sell_currency} 已生成 {len(generated_periods)}/4 張圖表（180 天圖表因 API 數據範圍限制無法生成）。")
+                    else:
+                        print(f"⚠️ 背景任務部分完成: {buy_currency}-{sell_currency} 已生成 {len(generated_periods)}/4 張圖表，未生成: {missing_periods}。")
 
             except Exception as e:
                 logger.error(f"❌ 背景任務失敗 ({buy_currency}-{sell_currency}): {e}", exc_info=True)
@@ -455,11 +608,18 @@ class ExchangeRateManager:
             all_dates_str_sorted = sorted(live_rates_data.keys())
             
             # 根據天數篩選數據
-            end_date = datetime.now()
+            end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
             start_date = end_date - timedelta(days=days)
+
+            # 動態判斷：若今天的數據已存在，則包含今天；否則只到昨天
+            today_str = end_date.strftime('%Y-%m-%d')
+            if today_str in live_rates_data:
+                end_date_inclusive = end_date
+            else:
+                end_date_inclusive = end_date - timedelta(days=1)
             
             # 從已有的數據中篩選出符合期間的
-            filtered_dates = [d for d in all_dates_str_sorted if start_date <= datetime.strptime(d, '%Y-%m-%d') <= end_date]
+            filtered_dates = [d for d in all_dates_str_sorted if start_date <= datetime.strptime(d, '%Y-%m-%d') <= end_date_inclusive]
             
             # 如果篩選後數據不足，則不生成圖表
             if not filtered_dates:
@@ -550,46 +710,33 @@ class ExchangeRateManager:
         ax.set_xlabel('日期', fontsize=12)
         ax.set_ylabel('匯率', fontsize=12)
         
-        # 使用 MaxNLocator 自動決定 X 軸刻度，並確保最後一天總是被顯示
+        # 使用純手動等距分配 X 軸刻度（保證首尾端點且間距均勻）
         
         # 根據圖表天數設定理想的刻度數量
         if days <= 10:
-            nbins = 10
+            num_ticks = 10
         elif days <= 30:
-            nbins = 15
+            num_ticks = 15
         elif days <= 90:
-            nbins = 12
+            num_ticks = 12
         else:  # 180 days
-            nbins = 15
+            num_ticks = 15
 
         if len(x_indices) > 1:
-            locator = MaxNLocator(nbins=nbins, integer=True, min_n_ticks=3)
-            # 獲取自動計算的刻度位置，並過濾掉超出範圍的值
-            tick_indices = [int(i) for i in locator.tick_values(0, len(x_indices) - 1) 
-                          if 0 <= i < len(x_indices)]
-            
-            # 確保最後一個數據點總是被顯示
             last_index = len(x_indices) - 1
-            if last_index not in tick_indices and tick_indices:
-                # 計算平均刻度間距
-                if len(tick_indices) > 1:
-                    avg_spacing = (tick_indices[-1] - tick_indices[0]) / (len(tick_indices) - 1)
-                else:
-                    avg_spacing = last_index / max(1, nbins)
-                
-                distance_to_last = last_index - tick_indices[-1]
-                
-                # 策略：如果距離太近（< 40% 平均間距），則替換最後一個刻度
-                # 如果距離適中（>= 40%），則添加最後一個刻度
-                if distance_to_last < avg_spacing * 0.4:
-                    # 距離太近，替換最後一個刻度
-                    tick_indices[-1] = last_index
-                else:
-                    # 距離足夠，直接添加
+            # 刻度數不能超過數據點數
+            num_ticks = min(num_ticks, len(x_indices))
+
+            if num_ticks >= len(x_indices):
+                # 數據點少於等於刻度數，顯示所有點
+                tick_indices = list(range(len(x_indices)))
+            else:
+                # 使用整數步長（ceiling division）確保所有間距一致
+                step = -(-last_index // (num_ticks - 1))
+                tick_indices = list(range(0, last_index + 1, step))
+                # 確保最後一個數據點總是顯示
+                if tick_indices[-1] != last_index:
                     tick_indices.append(last_index)
-            
-            # 移除重複值並排序
-            tick_indices = sorted(list(set(tick_indices)))
 
         elif x_indices:
             tick_indices = [x_indices[0]]
@@ -808,8 +955,53 @@ class ExchangeRateManager:
 
         rate_data = self.get_exchange_rate(current_date, buy_currency, sell_currency)
 
+        # 如果今天抓取失敗，嘗試獲取前一天的匯率
         if not rate_data or 'data' not in rate_data:
-            current_app.logger.error(f"❌ API LATEST (FAIL): {buy_currency}-{sell_currency} - API 抓取失敗。")
+            current_app.logger.warning(f"⚠️ API LATEST (FAIL): {buy_currency}-{sell_currency} - 今天抓取失敗，嘗試獲取前一天...")
+            previous_date = current_date - timedelta(days=1)
+            while previous_date.weekday() >= 5: # 尋找最近的工作日
+                previous_date -= timedelta(days=1)
+            
+            previous_rate_data = self.get_exchange_rate(previous_date, buy_currency, sell_currency)
+            
+            if previous_rate_data and 'data' in previous_rate_data:
+                try:
+                    conversion_rate = float(previous_rate_data['data']['conversionRate'])
+                    previous_data = {
+                        'date': previous_date.strftime('%Y-%m-%d'),
+                        'rate': conversion_rate,
+                        'trend': None, 'trend_value': 0,
+                        'updated_time': datetime.now().isoformat(),
+                        'is_previous_day': True,  # 標注這是前一天的數據
+                        'fallback_reason': '今日數據尚未更新'
+                    }
+                    current_app.logger.info(f"✅ API LATEST (FALLBACK): {buy_currency}-{sell_currency} - 使用前一天數據 ({previous_date.strftime('%Y-%m-%d')})")
+                    
+                    # 計算過去各期間最低匯率
+                    lowest_rate = None
+                    lowest_period = None
+                    for p in [7, 30, 90, 180]:
+                        dates, rates = self.extract_local_rates(p)
+                        if rates:
+                            lowest_rate = min(rates)
+                            lowest_period = p
+                            break
+                    if lowest_rate is None:
+                        dates30, rates30 = self.extract_local_rates(30)
+                        if rates30:
+                            lowest_rate = min(rates30)
+                            lowest_period = 30
+                    if lowest_rate is not None:
+                        previous_data['lowest_rate'] = lowest_rate
+                        previous_data['lowest_period'] = lowest_period
+                    
+                    previous_data['buy_currency'] = buy_currency
+                    previous_data['sell_currency'] = sell_currency
+                    return previous_data
+                except (KeyError, ValueError, TypeError) as e:
+                    current_app.logger.error(f"❌ API LATEST (PARSE FAIL): 解析前一天數據時出錯: {e}")
+            
+            current_app.logger.error(f"❌ API LATEST (FAIL): {buy_currency}-{sell_currency} - 今天和前一天都抓取失敗。")
             return None
 
         # 3. 解析成功後，將新數據存入快取

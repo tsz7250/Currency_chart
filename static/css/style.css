@@ -808,6 +808,39 @@ body {
     font-size: 0.85rem;
 }
 
+/* 自動更新通知 - 顯示在圖表容器上方 */
+.auto-update-notification {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #d4edda;
+    color: #155724;
+    padding: 12px 20px;
+    border-radius: 6px;
+    border-left: 4px solid #28a745;
+    font-size: 0.9rem;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.3s ease-in-out;
+    pointer-events: none;
+}
+
+.auto-update-notification.show {
+    opacity: 1;
+}
+
+.auto-update-notification.hide {
+    opacity: 0;
+}
+
+/* 確保圖表容器有 relative 定位以支持 absolute 子元素 */
+#chart-container {
+    position: relative;
+}
+
 .data-status {
     background: white;
     border: 1px solid #e9ecef;

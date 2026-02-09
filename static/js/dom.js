@@ -32,10 +32,17 @@ export function displayLatestRate(data) {
   const timingDisplay = data.processing_time ? 
     `<div class="rate-timing">⚡ 載入時間：${data.processing_time_ms}ms</div>` : '';
 
+  // 如果是前一天的數據，顯示標注
+  const previousDayNotice = data.is_previous_day 
+    ? `<div class="rate-fallback-notice" style="background: #fff3cd; color: #856404; padding: 8px; border-radius: 4px; margin-top: 8px; font-size: 0.9rem; border: 1px solid #ffc107;">
+        ⚠️ ${data.fallback_reason || '今日數據尚未更新'}，顯示前一日匯率
+      </div>`
+    : '';
+
   rateEl.innerHTML = `
     <div class="rate-display">
       <div class="rate-info">
-        <div class="rate-date">📅 ${formatDate(data.date)}</div>
+        <div class="rate-date">📅 ${formatDate(data.date)}${data.is_previous_day ? ' <span style="color: #856404;">(前一日)</span>' : ''}</div>
         <div class="rate-trend ${trendInfo.class}">
           <span class="trend-icon">${trendInfo.icon}</span>
           <span>${trendInfo.text}</span>
@@ -51,6 +58,7 @@ export function displayLatestRate(data) {
           : `<div class="rate-lowest">近${data.lowest_period}天最低: ${data.lowest_rate.toFixed(4)}</div>`}
         ${timingDisplay}
       </div>
+      ${previousDayNotice}
     </div>
   `;
 }
@@ -353,4 +361,41 @@ export function renderHistoryList(pairs, type) {
       <span>${pair.sell_currency}</span>
     </div>
   `).join('');
+}
+
+/**
+ * 在圖表上方顯示自動更新通知，3秒後自動消失
+ */
+export function showAutoUpdateNotification() {
+  const chartContainer = document.getElementById('chart-container');
+  if (!chartContainer) return;
+  
+  // 檢查是否已有通知，避免重複
+  const existingNotification = chartContainer.querySelector('.auto-update-notification');
+  if (existingNotification) {
+    existingNotification.remove();
+  }
+  
+  // 創建通知元素
+  const notification = document.createElement('div');
+  notification.className = 'auto-update-notification';
+  notification.innerHTML = '💹 匯率已自動更新';
+  
+  // 插入到圖表容器頂部
+  chartContainer.insertBefore(notification, chartContainer.firstChild);
+  
+  // 觸發淡入動畫
+  setTimeout(() => {
+    notification.classList.add('show');
+  }, 10);
+  
+  // 3秒後淡出並移除
+  setTimeout(() => {
+    notification.classList.remove('show');
+    notification.classList.add('hide');
+    // 動畫結束後從DOM中移除
+    setTimeout(() => {
+      notification.remove();
+    }, 300);
+  }, 3000);
 }

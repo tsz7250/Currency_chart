@@ -15,7 +15,8 @@ import {
   handleChartError,
   openHistoryPopup,
   closeHistoryPopup,
-  renderHistoryList
+  renderHistoryList,
+  showAutoUpdateNotification
 } from './dom.js';
 import { CurrencyManager } from './currency_manager.js';
 import { userHistoryManager } from './history_manager.js';
@@ -348,6 +349,23 @@ function setupSSEConnection() {
 
   eventSource = new EventSource('/api/events');
 
+  // SSE 連線建立時更新指示器
+  eventSource.onopen = function() {
+    const indicator = document.getElementById('sse-status-indicator');
+    if (indicator) {
+      indicator.classList.remove('disconnected');
+      indicator.classList.add('connected');
+      indicator.title = 'SSE 已連接';
+    }
+    console.log('✅ SSE 連線已建立');
+  };
+
+  // 監聽伺服器發送的連接確認事件
+  eventSource.addEventListener('connected', function(event) {
+    const data = JSON.parse(event.data);
+    console.log('✅ SSE 連接確認:', data.message);
+  });
+
   // 新增：正確監聽 'progress_update' 命名事件
   eventSource.addEventListener('progress_update', function(event) {
     const data = JSON.parse(event.data);
@@ -421,52 +439,43 @@ function setupSSEConnection() {
   });
 
   eventSource.onerror = function () {
-    eventSource.close();
+    const indicator = document.getElementById('sse-status-indicator');
+    if (indicator) {
+      indicator.classList.remove('connected');
+      indicator.classList.add('disconnected');
+      indicator.title = 'SSE 連線中斷，正在重連...';
+    }
+    console.log('⚠️ SSE 連線中斷，瀏覽器將自動重連');
+    // 不呼叫 eventSource.close()，讓 EventSource 原生自動重連機制接管
   };
-}
 
-// 自動刷新頁面內容
-async function autoRefreshContent(updateData) {
-  const { from, to } = updateData;
-  
-  // 只有當用戶正在查看的貨幣對更新時，才刷新
-  if (from === currencyManager.currentFromCurrency && to === currencyManager.currentToCurrency) {
-    // 顯示一個短暫的通知
-    showAutoUpdateNotification(updateData);
+  // 監聽 rate_updated 事件：伺服器排程更新匯率時觸發
+  eventSource.addEventListener('rate_updated', async function(event) {
+    const data = JSON.parse(event.data);
+    console.log('🔄 收到匯率更新通知:', data);
     
-    // 重新載入最新匯率和圖表
-    // 這裡我們假設用戶希望看到最新的數據，所以強制重新載入
-    await currencyManager.loadRate();
-    await currencyManager.loadChart(true); // `force` 參數為 true
-  }
+    // 只有當更新的貨幣對與當前顯示的相符時才執行
+    if (data.buy_currency === currencyManager.currentFromCurrency && 
+        data.sell_currency === currencyManager.currentToCurrency) {
+      
+      // 顯示更新通知
+      showAutoUpdateNotification();
+      
+      // 清除圖表快取
+      const period = currentPeriod || '7';
+      const cacheKey = `${data.buy_currency}_${data.sell_currency}_${period}`;
+      delete chartCache[cacheKey];
+      
+      // 重新載入最新匯率
+      await currencyManager.loadRate();
+      
+      // 重新載入圖表
+      await currencyManager.loadChart();
+    }
+  });
 }
 
-// 顯示自動更新通知
-function showAutoUpdateNotification(updateData) {
-  const notification = document.createElement('div');
-  notification.className = 'auto-update-notification';
-  
-  const icon = '🔄';
-  const message = `偵測到 ${updateData.from}-${updateData.to} 數據已更新，頁面已自動刷新。`;
-
-  notification.innerHTML = `${icon} ${message}`;
-  
-  document.body.appendChild(notification);
-  
-  // 觸發顯示動畫
-  setTimeout(() => {
-    notification.classList.add('show');
-  }, 10);
-  
-  // 5秒後自動隱藏
-  setTimeout(() => {
-    notification.classList.remove('show');
-    // 動畫結束後從DOM中移除
-    setTimeout(() => {
-      notification.remove();
-    }, 500);
-  }, 5000);
-}
+// showAutoUpdateNotification 函式已移至 dom.js
 
 
 function setupConfirmButton() {
