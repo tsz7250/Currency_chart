@@ -1,0 +1,21 @@
+services:
+  web:
+    build: .
+    container_name: twd-hkd-currency
+    ports:
+      - "5000:5000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5000
+      - TZ=Asia/Taipei
+    tty: true
+    volumes:
+      # 匯率歷史數據（持久化）
+      - ./TWD-HKD_180d.json:/app/TWD-HKD_180d.json
+      # Mastercard Cookies（持久化）
+      - ./mastercard_cookies.json:/app/mastercard_cookies.json
+      # 應用日誌（持久化）
+      - ./app.log:/app/app.log
+      # 動態產生的圖表（持久化）
+      - ./static/charts:/app/static/charts
+    restart: unless-stopped

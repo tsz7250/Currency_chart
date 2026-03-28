@@ -1,0 +1,37 @@
+# Version control
+.git
+.gitattributes
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs (container will generate its own)
+app.log
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Docker files themselves
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Generated charts (will be regenerated)
+static/charts/*
+
+# README
+README.md
