@@ -97,6 +97,10 @@ def setup_logging(app):
     console_handler.setFormatter(formatter)
     console_handler.setLevel(getattr(logging, log_level))
     
+    # 移除 Flask 預設的日誌處理器以避免重複輸出
+    from flask.logging import default_handler
+    app.logger.removeHandler(default_handler)
+    
     # 配置 app logger
     app.logger.addHandler(file_handler)
     app.logger.addHandler(console_handler)
