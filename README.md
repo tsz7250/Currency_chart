@@ -45,7 +45,7 @@ python run.py
 
 本專案另提供免費靜態展示頁面，僅追蹤 TWD ⇒ HKD 匯率，由 GitHub Actions 每日自動更新。
 
-**線上頁面**：`https://<username>.github.io/Currency_chart/`
+**線上頁面**：https://tsz7250.github.io/Currency_chart/
 
 ### 自動更新
 - GitHub Actions 每週一至週五 UTC 01:00（台北 09:00）自動抓取最新匯率
