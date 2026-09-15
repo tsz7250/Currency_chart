@@ -38,3 +38,14 @@ python run.py
 ## 資料來源與版權
 - 匯率資料取自 Mastercard 公開服務，請遵守對方條款
 - 本專案僅供學習與個人使用，如需散布請自行加入 LICENSE
+
+---
+
+## GitHub Pages 靜態展示（TWD-HKD）
+
+本專案另提供免費靜態展示頁面，僅追蹤 TWD ⇒ HKD 匯率，由 GitHub Actions 每日自動更新。
+
+**線上頁面**：`https://<username>.github.io/Currency_chart/`
+
+### 自動更新
+- GitHub Actions 每週一至週五 UTC 01:00（台北 09:00）自動抓取最新匯率

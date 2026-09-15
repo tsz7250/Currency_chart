@@ -759,7 +759,8 @@ class ExchangeRateManager:
         
         # 添加平均線
         if rates:
-            avg_rate = sum(rates) / len(rates)
+            # ponytail: round avg_rate to 4 decimal places to align visually with 4-decimal Y axis ticks
+            avg_rate = round(sum(rates) / len(rates), 4)
             ax.axhline(y=avg_rate, color='orange', linestyle='--', linewidth=1.5, alpha=0.8, label=f'平均值: {avg_rate:.4f}')
             ax.legend(loc='upper right', fontsize=10)
         
