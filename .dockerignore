@@ -32,3 +32,8 @@ docker-compose.yml
 
 # README
 README.md
+
+# GitHub Pages & CI
+docs
+scripts
+.github

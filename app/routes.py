@@ -18,11 +18,6 @@ def index():
     """主頁面"""
     return render_template('index.html')
 
-@bp.route('/test')
-def test_page():
-    """API 測試頁面"""
-    return current_app.send_static_file('api_test.html')
-
 @bp.route('/api/chart')
 def get_chart():
     """獲取圖表API - 支援多幣種並統一使用伺服器快取"""

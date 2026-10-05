@@ -1,5 +1,5 @@
-static/charts/*
-__pycache__
+**/__pycache__/
+*.py[cod]
 /TWD-HKD_180d.json
 mastercard_cookies.json
 app.log
