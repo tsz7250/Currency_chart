@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>多幣種匯率走勢圖</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 </head>
 
 <body>
@@ -48,8 +50,8 @@
                 </div>
                 <div id="progressPercentage" class="progress-percentage">0%</div>
             </div>
-            <!-- 圖表圖片 -->
-            <img id="chartImage" src="" alt="匯率走勢圖" style="display: none; max-width: 100%;">
+            <!-- Chart.js Canvas -->
+            <canvas id="rateChart" style="display: none; width: 100%; height: 100%;"></canvas>
             <!-- 錯誤訊息 -->
             <div id="chartErrorDisplay" class="error-message" style="display: none;"></div>
           </div>

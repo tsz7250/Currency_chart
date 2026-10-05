@@ -52,7 +52,7 @@ def get_chart():
         chart_data = current_app.manager.create_chart(days, buy_currency, sell_currency)
         processing_time = time.time() - start_time
         
-        if chart_data and chart_data.get('chart_url'):
+        if chart_data and chart_data.get('dates'):
             chart_data['processing_time'] = round(processing_time, 3)
             chart_data['processing_time_ms'] = round(processing_time * 1000, 1)
             return jsonify(chart_data)

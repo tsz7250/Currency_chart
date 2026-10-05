@@ -1,5 +1,72 @@
 // static/js/dom.js
 
+let chartInstance = null;
+
+// 全域 Chart.js 字型設置為微軟正黑體
+if (typeof Chart !== 'undefined') {
+  Chart.defaults.font.family = "'Microsoft JhengHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+}
+
+// 自訂 Plugin: 繪製 Matplotlib 經典四邊邊框與右上角圖例
+const chartCustomDrawPlugin = {
+  id: 'chartCustomDraw',
+  afterDraw(chart) {
+    const { ctx, chartArea } = chart;
+    if (!chartArea) return;
+
+    ctx.save();
+    // 1. 繪製四周外框
+    ctx.strokeStyle = '#2c3e50';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+
+    // 2. 繪製右上角平均值圖例框（含橙色虛線標記）
+    const avgVal = chart.options?.plugins?._avgRate;
+    if (avgVal !== undefined) {
+      const text = `平均值: ${avgVal.toFixed(4)}`;
+      ctx.font = 'bold 12px "Microsoft JhengHei", sans-serif';
+      const textWidth = ctx.measureText(text).width;
+      const lineLen = 18;
+      const padX = 8;
+      const boxWidth = padX * 2 + lineLen + 6 + textWidth;
+      const boxHeight = 22;
+      const boxRight = chartArea.right - 10;
+      const boxTop = chartArea.top + 10;
+      const boxLeft = boxRight - boxWidth;
+
+      // 白底背景
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.fillRect(boxLeft, boxTop, boxWidth, boxHeight);
+
+      // 淺灰邊框
+      ctx.strokeStyle = '#bbbbbb';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(boxLeft, boxTop, boxWidth, boxHeight);
+
+      // 橙色虛線 (---)
+      const lineY = boxTop + boxHeight / 2;
+      const lineStartX = boxLeft + padX;
+      const lineEndX = lineStartX + lineLen;
+      ctx.save();
+      ctx.strokeStyle = '#f39c12';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(lineStartX, lineY);
+      ctx.lineTo(lineEndX, lineY);
+      ctx.stroke();
+      ctx.restore();
+
+      // 文字
+      ctx.fillStyle = '#333333';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, lineEndX + 6, lineY);
+    }
+    ctx.restore();
+  }
+};
+
 export function showError(message) {
   const errorEl = document.getElementById('error-message');
   if (errorEl) {
@@ -139,6 +206,7 @@ export function showGlobalProgressBar(message = '正在請求後端生成圖表.
   const spinner = document.getElementById('chartSpinner');
   if (!spinner) return;
 
+  const chartCanvas = document.getElementById('rateChart');
   const chartImage = document.getElementById('chartImage');
   const errorDisplay = document.getElementById('chartErrorDisplay');
   const loadingMessageEl = document.getElementById('loadingMessage');
@@ -148,6 +216,7 @@ export function showGlobalProgressBar(message = '正在請求後端生成圖表.
 
   // 顯示 spinner，隱藏圖表和錯誤
   spinner.style.display = 'flex';
+  if (chartCanvas) chartCanvas.style.display = 'none';
   if (chartImage) chartImage.style.display = 'none';
   if (errorDisplay) errorDisplay.style.display = 'none';
   
@@ -266,34 +335,249 @@ export function handleChartError(message) {
 }
 
 /**
- * Renders the chart image and updates the associated statistics.
- * @param {string} chartUrl - The URL of the chart image.
- * @param {object} stats - The object containing statistics.
- * @param {string} fromCurrency - The starting currency code.
- * @param {string} toCurrency - The target currency code.
- * @param {string|number} period - The data period for the chart.
+ * 使用 Chart.js 向量渲染匯率走勢圖並更新相關統計資訊。
+ * 支援傳入純數列資料物件或向下相容參數。
  */
-export function renderChart(chartUrl, stats, fromCurrency, toCurrency, period) {
+export function renderChart(chartData, stats, fromCurrency, toCurrency, period) {
+  const canvas = document.getElementById('rateChart');
   const chartImage = document.getElementById('chartImage');
   const chartErrorDisplay = document.getElementById('chartErrorDisplay');
-  const chartTitle = document.getElementById('chart-title');
 
-  // 隱藏載入動畫，並在完成後執行回呼
+  // 參數歸一化處理
+  const data = (chartData && typeof chartData === 'object' && chartData.dates) 
+    ? chartData 
+    : { dates: chartData?.dates, rates: chartData?.rates, stats: stats || chartData?.stats };
+
+  const fromCurr = fromCurrency || data.buy_currency || 'TWD';
+  const toCurr = toCurrency || data.sell_currency || 'HKD';
+  const activePeriod = period || data.period || 7;
+  const currentStats = data.stats || stats;
+
   hideGlobalProgressBar(() => {
-    if (chartImage && chartUrl) {
-      chartImage.src = chartUrl;
-      chartImage.style.display = 'block';
-      if (chartErrorDisplay) chartErrorDisplay.style.display = 'none';
-
-      // 更新統計數據和標題
-      updateGridStats(stats);
-      if (chartTitle) {
-        chartTitle.textContent = `${fromCurrency} → ${toCurrency} (${period} 天走勢)`;
+    if (!canvas || !data || !Array.isArray(data.dates) || data.dates.length === 0) {
+      if (chartErrorDisplay) {
+        chartErrorDisplay.textContent = '❌ 無可用的圖表匯率數據';
+        chartErrorDisplay.style.display = 'block';
       }
-      // 確保日期範圍也被更新
+      return;
+    }
+
+    if (chartImage) chartImage.style.display = 'none';
+    if (chartErrorDisplay) chartErrorDisplay.style.display = 'none';
+    canvas.style.display = 'block';
+
+    const labels = data.dates;
+    const rates = data.rates;
+
+    if (chartInstance) {
+      chartInstance.destroy();
+    }
+
+    const periodNames = { 7: '近1週', 30: '近1個月', 90: '近3個月', 180: '近6個月' };
+    const periodLabel = periodNames[activePeriod] || `近${activePeriod}天`;
+
+    // 計算統計值與極值索引
+    const maxRate = Math.max(...rates);
+    const minRate = Math.min(...rates);
+    const avgRate = Number((rates.reduce((s, r) => s + r, 0) / rates.length).toFixed(4));
+    const maxIndex = rates.indexOf(maxRate);
+    const minIndex = rates.indexOf(minRate);
+
+    // Y 軸緩衝與整數步長網格對齊
+    const yRange = maxRate - minRate || 0.001;
+    const yPaddingTop = yRange * 0.22;
+    const yPaddingBottom = yRange * 0.15;
+    const _yCandidates = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01];
+    const yStep = _yCandidates.find(s => yRange / s >= 4 && yRange / s <= 8) ?? _yCandidates[_yCandidates.length - 1];
+    const yMin = Number((Math.floor((minRate - yPaddingBottom) / yStep) * yStep).toFixed(4));
+    const yMax = Number((Math.ceil((maxRate + yPaddingTop) / yStep) * yStep).toFixed(4));
+
+    // X 軸等距抽樣刻度索引（保證首尾兩點必定呈現且間距均勻）
+    const tickIndices = [];
+    if (labels.length <= 10) {
+      for (let i = 0; i < labels.length; i++) tickIndices.push(i);
+    } else {
+      const targetTicks = 11;
+      const lastIdx = labels.length - 1;
+      const step = Math.ceil(lastIdx / (targetTicks - 1));
+      for (let i = 0; i < lastIdx; i += step) {
+        tickIndices.push(i);
+      }
+      if (lastIdx - tickIndices[tickIndices.length - 1] < step * 0.6) {
+        tickIndices[tickIndices.length - 1] = lastIdx;
+      } else {
+        tickIndices.push(lastIdx);
+      }
+    }
+
+    // X 軸固定留白（保留約 2.5% 寬度，首尾點距邊框永遠固定約 20px）
+    const xSpan = labels.length - 1 || 1;
+    const xPadding = xSpan * 0.025;
+    const xMin = -xPadding;
+    const xMax = xSpan + xPadding;
+
+    // 極值點 X 軸位移防止左右邊界裁切
+    const calcXAdjust = (idx, total) => {
+      if (idx === 0 || (idx / total) < 0.08) return 20;
+      if (idx === total - 1 || (idx / total) > 0.92) return -20;
+      return 0;
+    };
+
+    // 極值標籤與平均線配置
+    const annotations = {
+      avgLine: {
+        type: 'line',
+        yMin: avgRate,
+        yMax: avgRate,
+        borderColor: '#f39c12',
+        borderWidth: 1.5,
+        borderDash: [6, 6],
+        label: { display: false }
+      },
+      maxLabel: {
+        type: 'label',
+        xValue: maxIndex,
+        yValue: maxRate,
+        backgroundColor: 'transparent',
+        content: maxRate.toFixed(4),
+        color: '#e74c3c',
+        font: { size: 12, weight: 'bold' },
+        yAdjust: -12,
+        xAdjust: calcXAdjust(maxIndex, labels.length),
+        padding: 2,
+      },
+      minLabel: {
+        type: 'label',
+        xValue: minIndex,
+        yValue: minRate,
+        backgroundColor: 'transparent',
+        content: minRate.toFixed(4),
+        color: '#27ae60',
+        font: { size: 12, weight: 'bold' },
+        yAdjust: 12,
+        xAdjust: calcXAdjust(minIndex, labels.length),
+        padding: 2,
+      }
+    };
+
+    const ctx = canvas.getContext('2d');
+
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: [{
+          label: '匯率',
+          data: rates.map((r, i) => ({ x: i, y: r })),
+          borderColor: '#2E86AB',
+          backgroundColor: 'rgba(46, 134, 171, 0.05)',
+          borderWidth: 2,
+          pointRadius: data.dates.length > 90 ? 2 : 3.5,
+          pointHoverRadius: 5,
+          pointBackgroundColor: '#2E86AB',
+          pointBorderColor: '#2E86AB',
+          fill: false,
+          tension: 0,
+        }]
+      },
+      plugins: [chartCustomDrawPlugin],
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: {
+          padding: { left: 10, right: 20, top: 10, bottom: 5 }
+        },
+        interaction: {
+          intersect: false,
+          mode: 'index',
+        },
+        plugins: {
+          _avgRate: avgRate,
+          legend: { display: false },
+          title: {
+            display: true,
+            text: `${fromCurr} 到 ${toCurr} 匯率走勢圖 (${periodLabel})`,
+            font: { size: 16, weight: 'bold' },
+            padding: { top: 8, bottom: 16 },
+            color: '#2c3e50',
+          },
+          annotation: {
+            annotations
+          },
+          tooltip: {
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            titleColor: '#fff',
+            bodyColor: '#fff',
+            titleFont: { size: 13 },
+            bodyFont: { size: 13 },
+            padding: 10,
+            cornerRadius: 6,
+            displayColors: false,
+            callbacks: {
+              title: (items) => labels[items[0].raw.x] || '',
+              label: (item) => `匯率: ${item.raw.y.toFixed(7)}`,
+            }
+          }
+        },
+        scales: {
+          x: {
+            type: 'linear',
+            min: xMin,
+            max: xMax,
+            afterBuildTicks: (scale) => {
+              scale.ticks = tickIndices.map(i => ({ value: i }));
+            },
+            title: {
+              display: true,
+              text: '日期',
+              color: '#2c3e50',
+              font: { size: 13, weight: 'bold' }
+            },
+            grid: {
+              color: 'rgba(0,0,0,0.06)',
+              tickColor: 'rgba(0,0,0,0.2)',
+            },
+            ticks: {
+              color: '#333',
+              font: { size: 12 },
+              callback: function(val) {
+                const d = labels[val];
+                if (!d) return '';
+                const parts = d.split('-');
+                return parts.length === 3 ? `${parts[1]}/${parts[2]}` : d;
+              }
+            }
+          },
+          y: {
+            min: yMin,
+            max: yMax,
+            title: {
+              display: true,
+              text: '匯率',
+              color: '#2c3e50',
+              font: { size: 13, weight: 'bold' }
+            },
+            grid: { color: 'rgba(0,0,0,0.06)' },
+            ticks: {
+              stepSize: yStep,
+              color: '#333',
+              font: { size: 12 },
+              callback: (v) => v.toFixed(4),
+            }
+          }
+        }
+      }
+    });
+
+    // 更新統計數據
+    if (currentStats) {
+      updateGridStats(currentStats, data.processing_time_ms);
       const dateRangeEl = document.getElementById('dateRange');
-      if(dateRangeEl && stats && stats.date_range) {
-          dateRangeEl.textContent = `數據範圍: ${stats.date_range}`;
+      if (dateRangeEl && currentStats.date_range) {
+        let text = `數據範圍: ${currentStats.date_range}`;
+        if (data.processing_time_ms) {
+          text += ` (⚡${data.processing_time_ms}ms)`;
+        }
+        dateRangeEl.textContent = text;
       }
     }
   });

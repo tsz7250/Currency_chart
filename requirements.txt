@@ -1,6 +1,5 @@
 Flask
 requests
-matplotlib
 pandas
 schedule
 gunicorn

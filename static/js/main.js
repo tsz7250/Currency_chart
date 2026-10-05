@@ -410,7 +410,7 @@ function setupSSEConnection() {
       if (isCurrentPeriod) {
         // 隱藏全域進度條並渲染
         hideGlobalProgressBar(() => {
-          renderChart(chartData.chart_url, chartData.stats, chartData.buy_currency, chartData.sell_currency, chartData.period);
+          renderChart(chartData, chartData.stats, chartData.buy_currency, chartData.sell_currency, chartData.period);
           updateDateRange(chartData.stats.date_range);
           // 一旦圖表準備就緒，設定載入狀態為 false
           currencyManager.setLoading('chart', false);

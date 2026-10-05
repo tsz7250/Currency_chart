@@ -4,8 +4,6 @@ import atexit
 import signal
 import sys
 import logging
-import matplotlib
-import matplotlib.font_manager as fm
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .exchange_rate_manager import ExchangeRateManager
@@ -299,9 +297,6 @@ def auto_update_data():
         print("   💡 提示：請檢查網路與 cookies 狀態，系統會在之後自動重試")
 
 def create_app():
-    # 設定非 GUI 後端
-    matplotlib.use('Agg')
-
     app = Flask(__name__, static_folder='../static', template_folder='../templates')
     
     # 設置日誌系統
@@ -316,29 +311,9 @@ def create_app():
     app.manager = ExchangeRateManager()
 
     with app.app_context():
-        # 設定中文字體
-        font_path = os.path.join(os.path.dirname(__file__), '..', 'fonts', 'NotoSansTC-Regular.ttf')
-        if os.path.exists(font_path):
-            fm.fontManager.addfont(font_path)
-            font_prop = fm.FontProperties(fname=font_path)
-            matplotlib.rcParams['font.sans-serif'] = [font_prop.get_name()]
-        else:
-            try:
-                matplotlib.rcParams['font.sans-serif'] = ['Noto Sans CJK TC']
-                print("使用系統字體: Noto Sans CJK TC")
-            except Exception as e:
-                matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans']
-                print(f"警告: 未找到中文字體: {e}")
-                print("請將 NotoSansTC-Regular.ttf 放入 fonts/ 資料夾")
-        matplotlib.rcParams['axes.unicode_minus'] = False
-        
         # 引入並註冊藍圖
         from . import routes
         app.register_blueprint(routes.bp)
-
-        # 在應用程式啟動時執行一次性任務
-        print("🧹 清理舊的圖表文件...")
-        app.manager._cleanup_charts_directory(app.manager.charts_dir, max_age_days=0)
         
         # 清理舊數據
         app.manager.update_data(180)

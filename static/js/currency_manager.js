@@ -150,7 +150,7 @@ class CurrencyManager {
         const chartData = this.deps.chartCache[cacheKey];
         // 直接渲染，不發送任何請求
         if (this.deps.renderChart) {
-          this.deps.renderChart(chartData.chart_url, chartData.stats, fromCurrency, toCurrency, period);
+          this.deps.renderChart(chartData, chartData.stats, fromCurrency, toCurrency, period);
         }
         if (this.deps.updateDateRange) {
           this.deps.updateDateRange(chartData.stats.date_range);
@@ -180,10 +180,10 @@ class CurrencyManager {
         const chartResponse = await fetch(`/api/chart?period=${period}&buy_currency=${fromCurrency}&sell_currency=${toCurrency}`);
         if (chartResponse.ok) {
           const chartData = await chartResponse.json();
-          if (chartData.chart_url) {
+          if (chartData && chartData.dates) {
             // 直接渲染圖表
             if (this.deps.renderChart) {
-              this.deps.renderChart(chartData.chart_url, chartData.stats, fromCurrency, toCurrency, period);
+              this.deps.renderChart(chartData, chartData.stats, fromCurrency, toCurrency, period);
             }
             if (this.deps.updateDateRange) {
               this.deps.updateDateRange(chartData.stats.date_range);

@@ -5,12 +5,10 @@ import hashlib
 import asyncio
 import logging
 import requests
-import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 from threading import Lock, Thread
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import concurrent.futures
-from matplotlib.ticker import MultipleLocator, FuncFormatter
 from flask import current_app
 
 from .utils import LRUCache, RateLimiter
@@ -31,10 +29,7 @@ class ExchangeRateManager:
         self._pause_lock = Lock()
         self._pause_message_printed = False
 
-        # 確保圖表目錄存在
-        self.charts_dir = os.path.join('static', 'charts')
-        if not os.path.exists(self.charts_dir):
-            os.makedirs(self.charts_dir)
+
 
         # 初始化 LRU 快取
         self.lru_cache = LRUCache(capacity=60, ttl_seconds=86400)
@@ -446,12 +441,13 @@ class ExchangeRateManager:
                                     if chart_info:
                                         print(f"✅ 背景任務：成功生成並快取了 {period} 天圖表（範圍內 {len(points_in_range)} 筆數據）。")
                                         generated_periods.add(period)
-                                        # 修正：傳送前端期望的扁平化資料結構
+                                        # 傳送純數列資料結構
                                         send_sse_event('chart_ready', {
                                             'buy_currency': buy_currency,
                                             'sell_currency': sell_currency,
                                             'period': period,
-                                            'chart_url': chart_info['chart_url'],
+                                            'dates': chart_info['dates'],
+                                            'rates': chart_info['rates'],
                                             'stats': chart_info['stats']
                                         })
 
@@ -481,7 +477,8 @@ class ExchangeRateManager:
                                             'buy_currency': buy_currency,
                                             'sell_currency': sell_currency,
                                             'period': period,
-                                            'chart_url': chart_info['chart_url'],
+                                            'dates': chart_info['dates'],
+                                            'rates': chart_info['rates'],
                                             'stats': chart_info['stats']
                                         })
                                 else:
@@ -503,7 +500,8 @@ class ExchangeRateManager:
                                         'buy_currency': buy_currency,
                                         'sell_currency': sell_currency,
                                         'period': period,
-                                        'chart_url': chart_info['chart_url'],
+                                        'dates': chart_info['dates'],
+                                        'rates': chart_info['rates'],
                                         'stats': chart_info['stats']
                                     })
                                 else:
@@ -541,32 +539,25 @@ class ExchangeRateManager:
 
         # 1. 檢查快取
         cached_info = self.lru_cache.get(cache_key)
-        if cached_info:
-            chart_url = cached_info.get('chart_url', '')
-            if chart_url and os.path.exists(os.path.join(self.charts_dir, os.path.basename(chart_url))):
-                # 對於 TWD-HKD，額外檢查數據是否有更新
-                if buy_currency == 'TWD' and sell_currency == 'HKD':
-                    # 檢查數據文件的最新日期
-                    if self.data:
-                        sorted_dates = self.get_sorted_dates()
-                        if sorted_dates:
-                            latest_data_date = sorted_dates[-1]
-                            # 從圖表 URL 提取日期（格式：chart_TWD-HKD_180d_2025-12-17_hash.png）
-                            url_parts = chart_url.split('_')
-                            if len(url_parts) >= 4:
-                                cached_date = url_parts[3]  # 2025-12-17
-                                # 如果數據更新了，清除快取重新生成
-                                if latest_data_date > cached_date:
-                                    print(f"🔄 檢測到數據更新（{cached_date} -> {latest_data_date}），重新生成圖表")
-                                    with self.lru_cache.lock:
-                                        if cache_key in self.lru_cache.cache:
-                                            del self.lru_cache.cache[cache_key]
-                                        if cache_key in self.lru_cache.access_order:
-                                            self.lru_cache.access_order.remove(cache_key)
-                                    cached_info = None
-                
-                if cached_info:
-                    return cached_info
+        if cached_info and cached_info.get('dates'):
+            # 對於 TWD-HKD，額外檢查數據是否有更新
+            if buy_currency == 'TWD' and sell_currency == 'HKD':
+                if self.data:
+                    sorted_dates = self.get_sorted_dates()
+                    if sorted_dates:
+                        latest_data_date = sorted_dates[-1]
+                        cached_date = cached_info['dates'][-1] if cached_info['dates'] else ''
+                        if latest_data_date > cached_date:
+                            print(f"🔄 檢測到數據更新（{cached_date} -> {latest_data_date}），重新生成數據")
+                            with self.lru_cache.lock:
+                                if cache_key in self.lru_cache.cache:
+                                    del self.lru_cache.cache[cache_key]
+                                if cache_key in self.lru_cache.access_order:
+                                    self.lru_cache.access_order.remove(cache_key)
+                            cached_info = None
+
+            if cached_info:
+                return cached_info
 
         # --- 快取未命中 ---
         
@@ -641,194 +632,29 @@ class ExchangeRateManager:
         if not all_dates_str or not all_rates:
             return None # 沒有足夠數據生成圖表
 
-        # --- 生成圖表和統計數據 ---
-        chart_url = self.render_chart_image(days, all_dates_str, all_rates, buy_currency, sell_currency)
-        if not chart_url:
-            return None
-
+        # --- 生成統計數據與回傳對象 ---
         all_dates_obj = [datetime.strptime(d, '%Y-%m-%d') for d in all_dates_str]
         stats = self._calculate_stats(all_rates, [d.strftime('%Y-%m-%d') for d in all_dates_obj])
-        
-        # --- 建立完整的圖表資訊對象 (已移除數據指紋) ---
+
         chart_info = {
-            'chart_url': chart_url,
+            'buy_currency': buy_currency,
+            'sell_currency': sell_currency,
+            'period': days,
+            'dates': all_dates_str,
+            'rates': all_rates,
             'stats': stats,
             'generated_at': datetime.now().isoformat(),
             'is_pinned': is_pinned
         }
-        
+
         # --- 更新快取 ---
-        # 這是關鍵的修復：確保 build_chart_with_cache 自身就能更新快取
         cache_key = f"chart_{buy_currency}_{sell_currency}_{days}"
         self.lru_cache.put(cache_key, chart_info)
-        current_app.logger.info(f"💾 CACHE SET (from regenerate): Stored chart for {buy_currency}-{sell_currency} ({days} days)")
+        current_app.logger.info(f"💾 CACHE SET: Stored chart data for {buy_currency}-{sell_currency} ({days} days)")
 
         return chart_info
 
-    def render_chart_image(self, days, all_dates_str, all_rates, buy_currency, sell_currency):
-        """
-        從提供的數據生成圖表，並將其保存為文件，返回其 URL 路徑。
-        all_dates_str 應為 'YYYY-MM-DD' 格式的字符串列表。
-        """
-        if not all_dates_str or not all_rates:
-            return None
 
-        # 生成可讀性更高且唯一的檔名（使用關鍵資訊而非全部資料以提升效能）
-        latest_date_str = all_dates_str[-1] if all_dates_str else "nodate"
-        first_date_str = all_dates_str[0] if all_dates_str else "nodate"
-        first_rate = all_rates[0] if all_rates else 0
-        last_rate = all_rates[-1] if all_rates else 0
-        data_count = len(all_dates_str)
-        
-        # 輕量級雜湊字串：只使用關鍵資訊確保唯一性
-        data_str = f"{days}-{buy_currency}-{sell_currency}-{first_date_str}-{latest_date_str}-{data_count}-{first_rate}-{last_rate}"
-        chart_hash = hashlib.md5(data_str.encode('utf-8')).hexdigest()
-        filename = f"chart_{buy_currency}-{sell_currency}_{days}d_{latest_date_str}_{chart_hash[:8]}.png"
-
-        relative_path = os.path.join('charts', filename)
-        full_path = os.path.join(self.charts_dir, filename)
-
-        if os.path.exists(full_path):
-            return f"/static/{relative_path.replace(os.path.sep, '/')}"
-
-        # 創建圖表
-        fig, ax = plt.subplots(figsize=(15, 8.5))
-        
-        # 轉換日期
-        dates = [datetime.strptime(d, '%Y-%m-%d') for d in all_dates_str]
-        rates = all_rates
-
-        # 改成使用索引作為 X 軸，以確保間距相等
-        x_indices = range(len(dates))
-        ax.plot(x_indices, rates, marker='o', linewidth=2, markersize=4, color='#2E86AB')
-        
-        # 設定標題
-        period_names = {7: '近1週', 30: '近1個月', 90: '近3個月', 180: '近6個月'}
-        # 假設匯率是 TWD -> HKD，標題顯示 HKD -> TWD，所以是 1 TWD = X HKD
-        title = f'{buy_currency} 到 {sell_currency} 匯率走勢圖 ({period_names.get(days, f"近{days}天")})'
-        ax.set_title(title, fontsize=16, fontweight='bold', pad=20)
-        ax.set_xlabel('日期', fontsize=12)
-        ax.set_ylabel('匯率', fontsize=12)
-        
-        # 使用純手動等距分配 X 軸刻度（保證首尾端點且間距均勻）
-        
-        # 根據圖表天數設定理想的刻度數量
-        if days <= 10:
-            num_ticks = 10
-        elif days <= 30:
-            num_ticks = 15
-        elif days <= 90:
-            num_ticks = 12
-        else:  # 180 days
-            num_ticks = 15
-
-        if len(x_indices) > 1:
-            last_index = len(x_indices) - 1
-            # 刻度數不能超過數據點數
-            num_ticks = min(num_ticks, len(x_indices))
-
-            if num_ticks >= len(x_indices):
-                # 數據點少於等於刻度數，顯示所有點
-                tick_indices = list(range(len(x_indices)))
-            else:
-                # 使用整數步長（ceiling division）確保所有間距一致
-                step = -(-last_index // (num_ticks - 1))
-                tick_indices = list(range(0, last_index + 1, step))
-                # 確保最後一個數據點總是顯示
-                if tick_indices[-1] != last_index:
-                    tick_indices.append(last_index)
-
-        elif x_indices:
-            tick_indices = [x_indices[0]]
-        else:
-            tick_indices = []
-        
-        if tick_indices:
-            # 設置刻度和標籤
-            ax.set_xticks(tick_indices)
-            ax.set_xticklabels([dates[i].strftime('%m/%d') for i in tick_indices])
-
-        # 固定 X 軸兩端留白，確保首尾刻度與邊框距離一致
-        ax.set_xlim(-0.5, len(x_indices) - 0.5)
-
-        ax.tick_params(axis='x', which='major', pad=8)
-        
-        # 添加網格
-        ax.grid(True, alpha=0.3)
-        
-        # 依數據 range 動態選擇步長，確保 Y 軸刻度間距清晰可讀（目標 5~8 格）
-        if rates:
-            _y_range = max(rates) - min(rates) if max(rates) > min(rates) else 0.001
-            _candidates = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01]
-            _y_step = next((s for s in _candidates if 4 <= _y_range / s <= 8), _candidates[-1])
-        else:
-            _y_step = 0.001
-        ax.yaxis.set_major_locator(MultipleLocator(_y_step))
-        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.4f}'))
-        
-        # 添加平均線
-        if rates:
-            # ponytail: round avg_rate to 4 decimal places to align visually with 4-decimal Y axis ticks
-            avg_rate = round(sum(rates) / len(rates), 4)
-            ax.axhline(y=avg_rate, color='orange', linestyle='--', linewidth=1.5, alpha=0.8, label=f'平均值: {avg_rate:.4f}')
-            ax.legend(loc='upper right', fontsize=10)
-        
-        # 設定 Y 軸範圍
-        if rates:
-            y_min, y_max = min(rates), max(rates)
-            y_range = y_max - y_min if y_max > y_min else 0.1
-            if days >= 30:
-                ax.set_ylim(y_min - y_range * 0.05, y_max + y_range * 0.15)
-            else:
-                ax.set_ylim(y_min - y_range * 0.05, y_max + y_range * 0.12)
-        
-        # 標記最高點和最低點
-        if rates:
-            max_rate = max(rates)
-            min_rate = min(rates)
-            max_index = rates.index(max_rate)
-            min_index = rates.index(min_rate)
-            
-            # 標記最高點
-            ax.annotate(f'{max_rate:.4f}', 
-                       (max_index, max_rate), 
-                       textcoords="offset points", 
-                       xytext=(0,10), 
-                       ha='center',
-                       va='bottom',
-                       fontsize=9,
-                       color='red',
-                       fontweight='bold',
-                       bbox=dict(boxstyle="round", facecolor='white', alpha=0.6, edgecolor='none'))
-            
-            # 標記最低點
-            ax.annotate(f'{min_rate:.4f}', 
-                       (min_index, min_rate), 
-                       textcoords="offset points", 
-                       xytext=(0,10), # 調整y偏移以避免重疊
-                       ha='center',
-                       va='bottom',
-                       fontsize=9,
-                       color='green',
-                       fontweight='bold',
-                       bbox=dict(boxstyle="round", facecolor='white', alpha=0.6, edgecolor='none'))
-        
-        # 手動調整佈局
-        fig.subplots_adjust(left=0.08, right=0.95, top=0.85, bottom=0.20)
-        
-        try:
-            fig.savefig(full_path, format='png', transparent=False, bbox_inches='tight', facecolor='white')
-        except Exception as e:
-            print(f"儲存圖表時出錯: {e}")
-            plt.close(fig)
-            return None
-        finally:
-            plt.close(fig)
-        
-        self._cleanup_charts_directory(self.charts_dir, max_age_days=1)
-        
-        # 返回 Flask 能識別的靜態文件 URL
-        return f"/static/{relative_path.replace(os.path.sep, '/')}"
 
     def warm_up_chart_cache(self, buy_currency='TWD', sell_currency='HKD'):
         """
@@ -847,16 +673,16 @@ class ExchangeRateManager:
                     with app_context.app_context():
                         try:
                             chart_info = manager_instance.create_chart(period, buy_currency, sell_currency)
-                            if not chart_info or not chart_info.get('chart_url'):
-                                raise ValueError("圖表生成返回了無效的數據")
+                            if not chart_info or not chart_info.get('dates'):
+                                raise ValueError("圖表數據生成返回了無效的數據")
                             
-                            # 修正：傳送前端期望的扁平化資料結構
                             send_sse_event('chart_ready', {
                                 'message': f'圖表 {buy_currency}-{sell_currency} ({period}d) 已生成',
                                 'buy_currency': buy_currency,
                                 'sell_currency': sell_currency,
                                 'period': period,
-                                'chart_url': chart_info['chart_url'],
+                                'dates': chart_info['dates'],
+                                'rates': chart_info['rates'],
                                 'stats': chart_info['stats']
                             })
                         except Exception as e:
@@ -880,19 +706,7 @@ class ExchangeRateManager:
                 else:
                     print(f"✅ {buy_currency}-{sell_currency} 的背景抓取已在進行中，無需重複啟動。")
 
-    @staticmethod
-    def _cleanup_charts_directory(directory, max_age_days=1):
-        """清理超過指定天數的舊圖表檔案"""
-        try:
-            current_time = time.time()
-            for filename in os.listdir(directory):
-                file_path = os.path.join(directory, filename)
-                if os.path.isfile(file_path):
-                    file_age = current_time - os.path.getmtime(file_path)
-                    if file_age > max_age_days * 24 * 3600:
-                        os.remove(file_path)
-        except Exception as e:
-            print(f"清理圖表目錄時出錯: {e}")
+
 
     def clear_expired_cache(self):
         """清理過期的快取項目"""
