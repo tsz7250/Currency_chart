@@ -29,6 +29,24 @@ python run.py
 - 如需獲取 Cookies，會自動顯示瀏覽器窗口約 10 秒
 - 一切都是自動的，只需運行 `python run.py`！
 
+## 如何開始（Docker）
+若環境已安裝 Docker 與 Docker Compose，可直接容器化啟動（免手動配置 Python 與 Playwright）：
+
+1) 構建並於背景啟動
+
+```bash
+docker compose up -d --build
+```
+
+2) 開啟瀏覽器
+- http://127.0.0.1:5000/
+
+3) 停止服務
+
+```bash
+docker compose down
+```
+
 ## 如何使用
 - 上方選擇「近 1 週／1 個月／3 個月／6 個月」切換期間
 - 右側選擇「買入/賣出」幣別（可搜尋、可交換），點「確認變更」

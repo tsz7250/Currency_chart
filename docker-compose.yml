@@ -16,6 +16,4 @@ services:
       - ./mastercard_cookies.json:/app/mastercard_cookies.json
       # 應用日誌（持久化）
       - ./app.log:/app/app.log
-      # 動態產生的圖表（持久化）
-      - ./static/charts:/app/static/charts
     restart: unless-stopped

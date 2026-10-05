@@ -30,8 +30,5 @@ Dockerfile
 docker-compose.yml
 .dockerignore
 
-# Generated charts (will be regenerated)
-static/charts/*
-
 # README
 README.md

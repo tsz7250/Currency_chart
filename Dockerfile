@@ -18,9 +18,6 @@ RUN playwright install chromium && playwright install-deps chromium
 # 複製應用程式碼
 COPY . .
 
-# 確保圖表輸出目錄存在
-RUN mkdir -p static/charts
-
 # 設定預設環境變數
 ENV HOST=0.0.0.0
 ENV PORT=5000
