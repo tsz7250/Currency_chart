@@ -168,6 +168,36 @@ function renderChart(data) {
   const _yCandidates = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01];
   const yStep = _yCandidates.find(s => yRange / s >= 4 && yRange / s <= 8) ?? _yCandidates[_yCandidates.length - 1];
 
+  // 將 min 與 max 網格對齊至 yStep 的整數倍，徹底消除畸零端點刻度與標籤重疊
+  const yMin = Number((Math.floor((minRate - yPaddingBottom) / yStep) * yStep).toFixed(4));
+  const yMax = Number((Math.ceil((maxRate + yPaddingTop) / yStep) * yStep).toFixed(4));
+
+  // 根據天數設定 X 軸等距抽樣刻度索引，保證首尾兩點必定呈現且間距均勻
+  const tickIndices = [];
+  if (labels.length <= 10) {
+    // 7天模式：顯示所有日期
+    for (let i = 0; i < labels.length; i++) tickIndices.push(i);
+  } else {
+    const targetTicks = 11;
+    const lastIdx = labels.length - 1;
+    const step = Math.ceil(lastIdx / (targetTicks - 1));
+    for (let i = 0; i < lastIdx; i += step) {
+      tickIndices.push(i);
+    }
+    // 端點保護：若最後一步與結尾太近則替換，否則補上最後一格
+    if (lastIdx - tickIndices[tickIndices.length - 1] < step * 0.6) {
+      tickIndices[tickIndices.length - 1] = lastIdx;
+    } else {
+      tickIndices.push(lastIdx);
+    }
+  }
+
+  // X 軸固定留白（保留約 2.5% 寬度，即各週期首尾點距邊框永遠固定約 20px）
+  const xSpan = labels.length - 1 || 1;
+  const xPadding = xSpan * 0.025;
+  const xMin = -xPadding;
+  const xMax = xSpan + xPadding;
+
   // 極值點 X 軸位移防止左右邊界裁切
   const calcXAdjust = (idx, total) => {
     if (idx === 0 || (idx / total) < 0.08) return 20;
@@ -188,7 +218,7 @@ function renderChart(data) {
     },
     maxLabel: {
       type: 'label',
-      xValue: maxDate,
+      xValue: maxIndex,
       yValue: maxRate,
       backgroundColor: 'transparent',
       content: maxRate.toFixed(4),
@@ -200,7 +230,7 @@ function renderChart(data) {
     },
     minLabel: {
       type: 'label',
-      xValue: minDate,
+      xValue: minIndex,
       yValue: minRate,
       backgroundColor: 'transparent',
       content: minRate.toFixed(4),
@@ -217,10 +247,9 @@ function renderChart(data) {
   chartInstance = new Chart(ctx, {
     type: 'line',
     data: {
-      labels,
       datasets: [{
         label: '匯率',
-        data: rates,
+        data: rates.map((r, i) => ({ x: i, y: r })),
         borderColor: '#2E86AB',
         backgroundColor: 'rgba(46, 134, 171, 0.05)',
         borderWidth: 2,
@@ -266,36 +295,43 @@ function renderChart(data) {
           cornerRadius: 6,
           displayColors: false,
           callbacks: {
-            title: (items) => items[0].label,
-            label: (item) => `匯率: ${item.raw.toFixed(7)}`,
+            title: (items) => labels[items[0].raw.x] || '',
+            label: (item) => `匯率: ${item.raw.y.toFixed(7)}`,
           }
         }
       },
       scales: {
         x: {
-          offset: true,
+          type: 'linear',
+          min: xMin,
+          max: xMax,
+          afterBuildTicks: (scale) => {
+            scale.ticks = tickIndices.map(i => ({ value: i }));
+          },
           title: {
             display: true,
             text: '日期',
             color: '#2c3e50',
             font: { size: 13, weight: 'bold' }
           },
-          grid: { color: 'rgba(0,0,0,0.06)' },
+          grid: {
+            color: 'rgba(0,0,0,0.06)',
+            tickColor: 'rgba(0,0,0,0.2)',
+          },
           ticks: {
-            maxTicksLimit: 12,
             color: '#333',
             font: { size: 12 },
             callback: function(val) {
-              const dateStr = this.getLabelForValue(val);
-              if (!dateStr) return '';
-              const parts = dateStr.split('-');
-              return parts.length === 3 ? `${parts[1]}/${parts[2]}` : dateStr;
+              const d = labels[val];
+              if (!d) return '';
+              const parts = d.split('-');
+              return parts.length === 3 ? `${parts[1]}/${parts[2]}` : d;
             }
           }
         },
         y: {
-          min: minRate - yPaddingBottom,
-          max: maxRate + yPaddingTop,
+          min: yMin,
+          max: yMax,
           title: {
             display: true,
             text: '匯率',
