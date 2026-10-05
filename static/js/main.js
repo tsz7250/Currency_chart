@@ -378,9 +378,11 @@ function setupSSEConnection() {
           : data.progress;
         // 組合符合當前 period 的訊息（X/需要值）
         let msg = data.message;
-        if (data.period_needed && data.current_points != null && data.period_needed[periodKey] != null) {
+        if (data.period_needed && data.period_needed[periodKey] != null) {
           const needed = data.period_needed[periodKey];
-          const have = Math.min(data.current_points, needed);
+          const have = data.period_have && data.period_have[periodKey] != null
+            ? data.period_have[periodKey]
+            : (data.current_points != null ? Math.min(data.current_points, needed) : 0);
           msg = `已獲取 ${have}/${needed} 天數據...`;
         }
         updateGlobalProgressBar(percent, msg);

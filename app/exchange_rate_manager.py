@@ -252,12 +252,11 @@ class ExchangeRateManager:
         end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         start_date = end_date - timedelta(days=days)
         
-        # 收集所有需要查詢的日期（排除週末，包含今天）
+        # 收集所有需要查詢的日期（包含週末與今天）
         query_dates = []
         current_date = start_date
         while current_date <= end_date:
-            if current_date.weekday() < 5:  # Monday=0, Friday=4
-                query_dates.append(current_date)
+            query_dates.append(current_date)
             current_date += timedelta(days=1)
         
         if not query_dates:
@@ -283,11 +282,7 @@ class ExchangeRateManager:
         return rates_data
 
     def extract_local_rates(self, days):
-        """獲取指定天數的匯率數據（只包含工作日，跳過週六週日）
-        
-        例如：days=7 表示過去7天（包括今天），即從 (今天-6天) 到 今天
-        但只會返回工作日的數據（週一至週五）
-        """
+        """獲取指定天數的匯率數據（包含工作日與有數據的週末）"""
         # 標準化為當天的開始時間（00:00:00），確保日期比較準確
         end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         start_date = end_date - timedelta(days=days)
@@ -304,14 +299,12 @@ class ExchangeRateManager:
 
         current_date = start_date
         while current_date <= end_date_inclusive:
-            # 跳過週六（5）和週日（6），只處理工作日（週一=0 至 週五=4）
-            if current_date.weekday() < 5:
-                date_str = current_date.strftime('%Y-%m-%d')
-                if date_str in self.data:
-                    rate = self.data[date_str].get('rate')
-                    if rate is not None:
-                        dates.append(current_date)
-                        rates.append(rate)
+            date_str = current_date.strftime('%Y-%m-%d')
+            if date_str in self.data:
+                rate = self.data[date_str].get('rate')
+                if rate is not None:
+                    dates.append(current_date)
+                    rates.append(rate)
             current_date += timedelta(days=1)
 
         return dates, rates
@@ -324,10 +317,9 @@ class ExchangeRateManager:
             try:
                 logger.info(f"🌀 事件驅動背景任務開始：為 {buy_currency}-{sell_currency} 抓取180天數據")
 
-                # 1. 收集日期，從最新到最舊（標準化為當天的開始時間）
+                # 1. 收集日期，從最新到最舊（標準化為當天的開始時間，包含所有日曆天）
                 end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                start_date = end_date - timedelta(days=180)
-                query_dates = sorted([d for d in (end_date - timedelta(days=i) for i in range(181)) if d.weekday() < 5], reverse=True)
+                query_dates = sorted([end_date - timedelta(days=i) for i in range(180)], reverse=True)
                 total_days_to_fetch = len(query_dates)
 
                 if total_days_to_fetch == 0:
@@ -336,29 +328,17 @@ class ExchangeRateManager:
 
                 # 2. 初始化變量
                 rates_data = {}
+                queried_dates = set()
                 fetched_count = 0
                 generated_periods = set()
                 
-                # 動態計算每個週期範圍內的工作日數量（作為生成圖表的最小門檻）
-                def calculate_workdays_in_range(days):
-                    """計算指定天數範圍內的工作日數量（不包含今天，因為今天的數據可能還未出來）"""
-                    # 從 days 天前開始，到昨天為止（不包含今天）
-                    start = end_date - timedelta(days=days)
-                    end = end_date - timedelta(days=1)
-                    workdays = sum(1 for i in range(days) if (start + timedelta(days=i)).weekday() < 5)
-                    return workdays
-                
-                # 7/30/90 天：門檻 100%
-                # 180 天：門檻等於 90 天（因為 180 天肯定比 90 天多，如果連 90 天數據都不夠就不生成）
-                chart_generation_checkpoints = {
-                    7: calculate_workdays_in_range(7),      # 100% 工作日
-                    30: calculate_workdays_in_range(30),    # 100% 工作日
-                    90: calculate_workdays_in_range(90),    # 100% 工作日
-                    180: calculate_workdays_in_range(90)    # 門檻等於 90 天
+                # 定義各週期需查詢的日期集合（日曆天）與目標天數
+                periods = [7, 30, 90, 180]
+                period_dates = {
+                    p: {(end_date - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(p)}
+                    for p in periods
                 }
-                
-                # 顯示動態計算的門檻值
-                print(f"📊 圖表生成門檻: {chart_generation_checkpoints}")
+                period_needed = {str(p): p for p in periods}
                 
                 # 早期停止機制：只監控真正的限流錯誤（HTTP 403），不包括「數據不存在」（HTTP 400 錯誤碼 114）
                 consecutive_rate_limit_failures = 0
@@ -371,6 +351,7 @@ class ExchangeRateManager:
                     for future in as_completed(future_to_date):
                         date_str, rate, error_type = future.result()
                         fetched_count += 1
+                        queried_dates.add(date_str)
                         
                         if rate is not None:
                             rates_data[date_str] = rate
@@ -397,101 +378,67 @@ class ExchangeRateManager:
                                 # 其他錯誤（401, 網絡錯誤等），不重置計數器但也不增加
                                 pass
 
-                        # 發送進度更新（加入各 period 進度）
-                        progress = int((fetched_count / total_days_to_fetch) * 100)
-                        # 以已成功取得的資料量來估算各期間進度（更貼近實際可生成狀態）
-                        current_points = len(rates_data)
+                        # 計算各週期已查詢天數與百分比
+                        global_progress = int((fetched_count / total_days_to_fetch) * 100)
                         period_progress = {}
-                        for p, needed in chart_generation_checkpoints.items():
-                            # 防止除以零並限制 0-100
-                            pct = int(min(100, max(0, (current_points / max(1, needed)) * 100)))
-                            period_progress[str(p)] = pct
-                        # 也將每個 period 所需門檻與目前累計成功點數傳給前端
-                        period_needed = {str(p): needed for p, needed in chart_generation_checkpoints.items()}
+                        period_have = {}
+                        for p in periods:
+                            p_str = str(p)
+                            target_set = period_dates[p]
+                            have = len(target_set & queried_dates)
+                            needed = period_needed[p_str]
+                            pct = int(min(100, max(0, (have / needed) * 100)))
+                            period_progress[p_str] = pct
+                            period_have[p_str] = have
+
+                        # 發送進度更新
                         send_sse_event('progress_update', {
-                            'progress': progress,
+                            'progress': global_progress,
                             'buy_currency': buy_currency,
                             'sell_currency': sell_currency,
                             'message': f'已獲取 {fetched_count}/{total_days_to_fetch} 天數據...',
                             'fetched_count': fetched_count,
                             'total_days': total_days_to_fetch,
                             'period_progress': period_progress,
-                            'current_points': current_points,
-                            'period_needed': period_needed
+                            'period_needed': period_needed,
+                            'period_have': period_have,
+                            'current_points': len(rates_data)
                         })
 
-                        # 4. 帶前置條件的漸進式生成（180 天圖表等所有數據抓取完畢後再生成）
-                        for period in chart_generation_checkpoints:
-                            # 180 天圖表需要最完整的歷史數據，在最終補全時生成
-                            if period == 180:
-                                continue
-                            
+                        # 4. 漸進式生成：當該週期所有天數均已完成查詢時生成圖表
+                        for period in periods:
                             if period not in generated_periods:
-                                min_points_needed = chart_generation_checkpoints[period]
-                                
-                                # 檢查「該週期範圍內」是否有足夠的數據點（包含今天）
-                                required_start_date = end_date - timedelta(days=period)
-                                required_end_date = end_date
-                                points_in_range = [d for d in rates_data.keys() 
-                                                  if required_start_date <= datetime.strptime(d, '%Y-%m-%d') <= required_end_date]
-                                
-                                # 只有當該週期範圍內有足夠數據點時才生成圖表
-                                if len(points_in_range) >= min_points_needed:
-                                    chart_info = self.build_chart_with_cache(period, buy_currency, sell_currency, live_rates_data=rates_data)
-                                    if chart_info:
-                                        print(f"✅ 背景任務：成功生成並快取了 {period} 天圖表（範圍內 {len(points_in_range)} 筆數據）。")
-                                        generated_periods.add(period)
-                                        # 傳送純數列資料結構
-                                        send_sse_event('chart_ready', {
-                                            'buy_currency': buy_currency,
-                                            'sell_currency': sell_currency,
-                                            'period': period,
-                                            'dates': chart_info['dates'],
-                                            'rates': chart_info['rates'],
-                                            'stats': chart_info['stats']
-                                        })
+                                target_set = period_dates[period]
+                                if target_set.issubset(queried_dates):
+                                    points_in_range = [d for d in target_set if d in rates_data]
+                                    if points_in_range:
+                                        chart_info = self.build_chart_with_cache(period, buy_currency, sell_currency, live_rates_data=rates_data)
+                                        if chart_info:
+                                            print(f"✅ 背景任務：成功生成並快取了 {period} 天圖表（範圍內 {len(points_in_range)} 筆數據）。")
+                                            generated_periods.add(period)
+                                            send_sse_event('chart_ready', {
+                                                'buy_currency': buy_currency,
+                                                'sell_currency': sell_currency,
+                                                'period': period,
+                                                'dates': chart_info['dates'],
+                                                'rates': chart_info['rates'],
+                                                'stats': chart_info['stats']
+                                            })
 
-                # 5. 最終補全
-                final_periods_to_generate = set(chart_generation_checkpoints.keys()) - generated_periods
+                # 5. 最終補全（若有限流中斷或某些週期尚未生成）
+                final_periods_to_generate = set(periods) - generated_periods
                 if final_periods_to_generate:
-                    # 檢查是否有足夠數據（避免在限流時發起無效請求）
-                    if len(rates_data) < 5:
+                    if len(rates_data) < 1:
                         print(f"⚠️ 數據不足（僅 {len(rates_data)} 筆），跳過圖表補全以避免再次觸發限流")
                         print(f"   未生成的圖表: {final_periods_to_generate}")
                     else:
                         print(f"背景任務：獲取完所有數據，嘗試補全未生成的圖表: {final_periods_to_generate}")
-                        # 按週期從小到大排序（7, 30, 90, 180）
                         sorted_periods = sorted(final_periods_to_generate)
                         
                         for period in sorted_periods:
-                            min_points_needed = chart_generation_checkpoints.get(period, 0)
-                            
-                            # 180 天圖表特殊處理：門檻等於 90 天（正常一定要比 90 天多），用所有能抓到的數據生成
-                            if period == 180:
-                                if len(rates_data) >= min_points_needed:
-                                    chart_info = self.build_chart_with_cache(period, buy_currency, sell_currency, live_rates_data=rates_data)
-                                    if chart_info:
-                                        print(f"✅ 背景任務：成功生成並快取了 {period} 天圖表（使用全部 {len(rates_data)} 筆數據）。")
-                                        generated_periods.add(period)
-                                        send_sse_event('chart_ready', {
-                                            'buy_currency': buy_currency,
-                                            'sell_currency': sell_currency,
-                                            'period': period,
-                                            'dates': chart_info['dates'],
-                                            'rates': chart_info['rates'],
-                                            'stats': chart_info['stats']
-                                        })
-                                else:
-                                    print(f"   跳過 {period} 天圖表（需要至少 {min_points_needed} 筆，僅有 {len(rates_data)} 筆）")
-                                continue
-                            
-                            # 7/30/90 天圖表：檢查「該週期範圍內」是否有足夠的數據點（包含今天）
-                            required_start_date = end_date - timedelta(days=period)
-                            required_end_date = end_date
-                            points_in_range = [d for d in rates_data.keys() 
-                                              if required_start_date <= datetime.strptime(d, '%Y-%m-%d') <= required_end_date]
-                            
-                            if len(points_in_range) >= min_points_needed:
+                            target_set = period_dates[period]
+                            points_in_range = [d for d in target_set if d in rates_data]
+                            if points_in_range:
                                 chart_info = self.build_chart_with_cache(period, buy_currency, sell_currency, live_rates_data=rates_data)
                                 if chart_info:
                                     print(f"✅ 背景任務：成功生成並快取了 {period} 天圖表（範圍內 {len(points_in_range)} 筆數據）。")
@@ -504,17 +451,6 @@ class ExchangeRateManager:
                                         'rates': chart_info['rates'],
                                         'stats': chart_info['stats']
                                     })
-                                else:
-                                    # 如果 7 天圖表都無法生成，其他更長週期也不可能成功
-                                    if period == 7:
-                                        print(f"   ⚠️ 7 天圖表生成失敗，跳過剩餘所有圖表")
-                                        break
-                            else:
-                                print(f"   跳過 {period} 天圖表（範圍內需要 {min_points_needed} 筆，僅有 {len(points_in_range)} 筆）")
-                                # 如果連 7 天都數據不足，其他更長週期也不可能足夠
-                                if period == 7:
-                                    print(f"   ⚠️ 連 7 天圖表都數據不足，跳過剩餘所有圖表")
-                                    break
 
                 # 6. 最終日誌
                 if len(generated_periods) == 4:
