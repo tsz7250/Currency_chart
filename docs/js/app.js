@@ -164,6 +164,10 @@ function renderChart(data) {
   const yPaddingTop = yRange * 0.22;
   const yPaddingBottom = yRange * 0.15;
 
+  // 依數據 range 動態選步長，確保刻度數落在 4~8 之間
+  const _yCandidates = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01];
+  const yStep = _yCandidates.find(s => yRange / s >= 4 && yRange / s <= 8) ?? _yCandidates[_yCandidates.length - 1];
+
   // 極值點 X 軸位移防止左右邊界裁切
   const calcXAdjust = (idx, total) => {
     if (idx === 0 || (idx / total) < 0.08) return 20;
@@ -300,6 +304,7 @@ function renderChart(data) {
           },
           grid: { color: 'rgba(0,0,0,0.06)' },
           ticks: {
+            stepSize: yStep,
             color: '#333',
             font: { size: 12 },
             callback: (v) => v.toFixed(4),

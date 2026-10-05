@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from threading import Lock, Thread
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import concurrent.futures
-from matplotlib.ticker import MaxNLocator, FuncFormatter
+from matplotlib.ticker import MultipleLocator, FuncFormatter
 from flask import current_app
 
 from .utils import LRUCache, RateLimiter
@@ -748,13 +748,22 @@ class ExchangeRateManager:
             ax.set_xticks(tick_indices)
             ax.set_xticklabels([dates[i].strftime('%m/%d') for i in tick_indices])
 
+        # 固定 X 軸兩端留白，確保首尾刻度與邊框距離一致
+        ax.set_xlim(-0.5, len(x_indices) - 0.5)
+
         ax.tick_params(axis='x', which='major', pad=8)
         
         # 添加網格
         ax.grid(True, alpha=0.3)
         
-        # 為 Y 軸設定 MaxNLocator 和 Formatter 以獲得更清晰且格式統一的刻度
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=10, prune='both', min_n_ticks=5))
+        # 依數據 range 動態選擇步長，確保 Y 軸刻度間距清晰可讀（目標 5~8 格）
+        if rates:
+            _y_range = max(rates) - min(rates) if max(rates) > min(rates) else 0.001
+            _candidates = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01]
+            _y_step = next((s for s in _candidates if 4 <= _y_range / s <= 8), _candidates[-1])
+        else:
+            _y_step = 0.001
+        ax.yaxis.set_major_locator(MultipleLocator(_y_step))
         ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.4f}'))
         
         # 添加平均線
