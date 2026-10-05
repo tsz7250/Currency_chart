@@ -2,8 +2,8 @@ name: Update TWD-HKD Exchange Rates
 
 on:
   schedule:
-    # UTC 07:40 = 台北 15:40，週一到週五
-    - cron: '40 7 * * 1-5'
+    # UTC 07:40 = 台北 15:40，每天執行（週末 Mastercard 若有數據則補齊）
+    - cron: '40 7 * * *'
   workflow_dispatch:
 
 permissions:

@@ -149,18 +149,17 @@ def fetch_missing_rates(cookies_dict, data, days=180):
     updated = 0
     current = start_date
     while current <= end_date:
-        if current.weekday() < 5:  # 跳過週末
-            date_str = current.strftime('%Y-%m-%d')
-            if date_str not in data:
-                result = get_exchange_rate(current, cookies_dict)
-                if result == 'expired':
-                    return updated, True  # 遇到 403
-                elif result is not None:
-                    data[date_str] = {
-                        'rate': result,
-                        'updated': datetime.now().isoformat()
-                    }
-                    updated += 1
+        date_str = current.strftime('%Y-%m-%d')
+        if date_str not in data:
+            result = get_exchange_rate(current, cookies_dict)
+            if result == 'expired':
+                return updated, True  # 遇到 403
+            elif result is not None:
+                data[date_str] = {
+                    'rate': result,
+                    'updated': datetime.now().isoformat()
+                }
+                updated += 1
         current += timedelta(days=1)
 
     return updated, False
