@@ -1,4 +1,6 @@
 // CurrencyManager 類別 - 統一管理貨幣狀態和載入控制
+import { userHistoryManager } from './history_manager.js';
+
 class CurrencyManager {
     constructor(dependencies = {}) {
       this.currentFromCurrency = 'TWD';
@@ -109,6 +111,7 @@ class CurrencyManager {
         this.currentFromCurrency = fromCurrency;
         this.currentToCurrency = toCurrency;
         this.saveToStorage();
+        userHistoryManager.addPair(fromCurrency, toCurrency);
   
         // 更新UI顯示
         this.updateCurrencySelectors();

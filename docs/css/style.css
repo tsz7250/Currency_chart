@@ -49,21 +49,9 @@ body {
     vertical-align: middle;
 }
 
-#sse-status-indicator.connected {
-    background-color: #28a745;
-    animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-    0% {
-        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
-    }
-    70% {
-        box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
-    }
-    100% {
-        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
-    }
+/* 靜態展示頁無即時連線，狀態燈以灰色中性呈現 */
+#sse-status-indicator.sse-static {
+    background-color: #6c757d;
 }
 
 .header .subtitle {
@@ -117,7 +105,7 @@ body {
 .period-btn {
     background: white;
     border: 2px solid #2E86AB;
-    color: #2E86AB;
+    color: #256a8a;
     padding: 8px 16px;
     border-radius: 20px;
     cursor: pointer;
@@ -129,13 +117,13 @@ body {
 }
 
 .period-btn:hover {
-    background: #2E86AB;
+    background: #256a8a;
     color: white;
     transform: translateY(-1px);
 }
 
 .period-btn.active {
-    background: #2E86AB;
+    background: #256a8a;
     color: white;
 }
 
@@ -170,7 +158,7 @@ body {
     justify-content: center;
     gap: 12px;
     text-align: center;
-    color: #6c757d;
+    color: #5a6268;
     font-size: 1rem;
     font-weight: 500;
 }
@@ -196,12 +184,12 @@ body {
     flex-shrink: 0;
 }
 
-.currency-selector h3,
-.latest-rate-header h3,
-.stats-header h3 {
+.currency-selector h2,
+.latest-rate-header h2,
+.stats-header h2 {
     font-size: 1rem;
     font-weight: 600;
-    color: #2E86AB;
+    color: #256a8a;
     margin: 0 0 12px 0;
     display: flex;
     align-items: center;
@@ -256,7 +244,7 @@ body {
 .exchange-arrow {
     align-self: center;
     font-size: 1.8rem;
-    color: #6c757d;
+    color: #5a6268;
     cursor: default;
     user-select: none;
     pointer-events: none;
@@ -272,7 +260,7 @@ body {
 }
 
 .currency-notice small {
-    color: #6c757d;
+    color: #5a6268;
     font-size: 0.75rem;
     line-height: 1.4;
 }
@@ -297,19 +285,19 @@ body {
 .rate-value {
     font-size: 1.45rem;
     font-weight: bold;
-    color: #2E86AB;
+    color: #256a8a;
     margin-bottom: 4px;
 }
 
 .rate-hint {
     font-size: 0.95rem;
     font-weight: normal;
-    color: #6c757d;
+    color: #5a6268;
 }
 
 .rate-label {
     font-size: 0.8rem;
-    color: #6c757d;
+    color: #5a6268;
     margin-bottom: 6px;
 }
 
@@ -318,7 +306,7 @@ body {
     justify-content: space-between;
     align-items: center;
     font-size: 0.75rem;
-    color: #6c757d;
+    color: #5a6268;
     margin-top: 6px;
 }
 
@@ -336,7 +324,7 @@ body {
 
 .rate-trend.up { color: #dc3545; }
 .rate-trend.down { color: #28a745; }
-.rate-trend.stable { color: #6c757d; }
+.rate-trend.stable { color: #5a6268; }
 
 .rate-best {
     color: #28a745;
@@ -350,12 +338,12 @@ body {
 }
 
 .rate-lowest {
-    color: #6c757d;
+    color: #5a6268;
     font-size: 0.75rem;
 }
 
 /* 統計資訊 */
-.stats-header h3 {
+.stats-header h2 {
     justify-content: center;
 }
 
@@ -420,5 +408,14 @@ body {
     }
     .chart-container {
         height: 320px;
+    }
+}
+
+/* 使用者偏好減少動態效果時，停用無限循環動畫 */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
     }
 }

@@ -14,7 +14,7 @@
   <div class="container">
     <div class="header">
       <h1>💱 匯率走勢圖</h1>
-      <div id="sse-status-indicator" class="disconnected" title="SSE 已斷開"></div>
+      <div id="sse-status-indicator" class="disconnected" role="status" aria-live="polite" aria-label="即時更新已斷線" title="SSE 已斷開"></div>
       <div class="subtitle">多幣種匯率分析工具</div>
     </div>
 
@@ -51,9 +51,10 @@
                 <div id="progressPercentage" class="progress-percentage">0%</div>
             </div>
             <!-- Chart.js Canvas -->
-            <canvas id="rateChart" style="display: none; width: 100%; height: 100%;"></canvas>
+            <canvas id="rateChart" role="img" style="display: none; width: 100%; height: 100%;"></canvas>
             <!-- 錯誤訊息 -->
             <div id="chartErrorDisplay" class="error-message" style="display: none;"></div>
+            <button id="chart-retry-btn" class="retry-btn" style="display: none;">重試</button>
           </div>
         </div>
       </div>
@@ -63,7 +64,7 @@
         <!-- 貨幣選擇器 -->
         <div class="currency-selector">
           <div class="currency-selector-header">
-            <h3>🔄 貨幣兌換</h3>
+            <h2>🔄 貨幣兌換</h2>
           </div>
           <div class="currency-inputs">
             <div class="currency-input-group">
@@ -107,7 +108,7 @@
         <!-- 最新匯率區塊 -->
         <div class="latest-rate-container">
           <div class="latest-rate-header">
-            <h3>💰 最新匯率 (TWD ⇒ HKD)</h3>
+            <h2>💰 最新匯率 (TWD ⇒ HKD)</h2>
           </div>
           <div id="latest-rate-content" class="latest-rate-content">
             <!-- 最新匯率將動態載入這裡 -->
@@ -117,7 +118,7 @@
         <!-- 統計數據區 -->
         <div id="statsContainer" class="stats-container">
             <div class="stats-header">
-                <h3>📊 圖表統計</h3>
+                <h2>📊 圖表統計</h2>
             </div>
             <div class="stats-grid">
                 <div class="stat-item" id="maxRate">最高匯率: N/A</div>
@@ -133,11 +134,11 @@
   </div>
 
   <!-- History Popup -->
-  <div id="history-popup-overlay" class="popup-overlay" style="display: none;">
+  <div id="history-popup-overlay" class="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="history-popup-title" style="display: none;">
     <div class="popup-content">
       <div class="popup-header">
-        <h3 class="popup-title">歷史記錄</h3>
-        <button class="popup-close" id="history-popup-close-btn">×</button>
+        <h2 class="popup-title" id="history-popup-title">歷史記錄</h2>
+        <button class="popup-close" id="history-popup-close-btn" aria-label="關閉">×</button>
       </div>
       <div class="popup-body">
         <div class="history-controls">
@@ -152,11 +153,11 @@
   </div>
 
   <!-- Popup 彈出視窗 -->
-  <div id="popup-overlay" class="popup-overlay">
+  <div id="popup-overlay" class="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="popup-title">
     <div class="popup-content">
       <div class="popup-header">
-        <h3 id="popup-title" class="popup-title">標題</h3>
-        <button class="popup-close" id="popup-close-btn">×</button>
+        <h2 id="popup-title" class="popup-title">標題</h2>
+        <button class="popup-close" id="popup-close-btn" aria-label="關閉">×</button>
       </div>
       <div id="popup-body" class="popup-body">
         <!-- 內容將在這裡顯示 -->

@@ -128,6 +128,15 @@ function setupCurrencyCombobox(selectId) {
   const dropdown = wrapper.querySelector('.currency-dropdown');
   const select = wrapper.querySelector('select');
 
+  // ARIA combobox 語意
+  const listboxId = `${selectId}-listbox`;
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-expanded', 'false');
+  input.setAttribute('aria-haspopup', 'listbox');
+  input.setAttribute('aria-controls', listboxId);
+  dropdown.id = listboxId;
+  dropdown.setAttribute('role', 'listbox');
+
   let allOptions = [];
   let filteredOptions = [];
   let highlightedIndex = -1;
@@ -160,6 +169,8 @@ function setupCurrencyCombobox(selectId) {
       item.className = 'currency-dropdown-item';
       item.dataset.value = option.value;
       item.textContent = option.text;
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', option.value === currentValue ? 'true' : 'false');
       if (option.value === currentValue) {
         item.classList.add('selected');
       }
@@ -190,11 +201,13 @@ function setupCurrencyCombobox(selectId) {
     }
 
     dropdown.classList.add('open');
+    input.setAttribute('aria-expanded', 'true');
     highlightedIndex = filteredOptions.findIndex(o => o.value === selectedValue);
   };
 
   const hideDropdown = () => {
     dropdown.classList.remove('open');
+    input.setAttribute('aria-expanded', 'false');
     exitSearchMode();
   };
 
@@ -332,13 +345,7 @@ function updateDisplay() {
   }
 
   // 更新頁面標題
-  document.title = `${currencyManager.currentFromCurrency} to ${currencyManager.currentToCurrency} Exchange Rate`;
-
-  // 更新主要標題
-  const mainTitle = document.getElementById('main-title');
-  if (mainTitle) {
-    mainTitle.textContent = `${currencyManager.currentFromCurrency} → ${currencyManager.currentToCurrency} 匯率走勢`;
-  }
+  document.title = `${currencyManager.currentFromCurrency} ⇒ ${currencyManager.currentToCurrency} 匯率走勢圖`;
 }
 
 // SSE 連接
@@ -356,6 +363,7 @@ function setupSSEConnection() {
       indicator.classList.remove('disconnected');
       indicator.classList.add('connected');
       indicator.title = 'SSE 已連接';
+      indicator.setAttribute('aria-label', '即時更新已連線');
     }
     console.log('✅ SSE 連線已建立');
   };
@@ -446,6 +454,7 @@ function setupSSEConnection() {
       indicator.classList.remove('connected');
       indicator.classList.add('disconnected');
       indicator.title = 'SSE 連線中斷，正在重連...';
+      indicator.setAttribute('aria-label', '即時更新連線中斷，重連中');
     }
     console.log('⚠️ SSE 連線中斷，瀏覽器將自動重連');
     // 不呼叫 eventSource.close()，讓 EventSource 原生自動重連機制接管
@@ -524,6 +533,24 @@ function setupEventListeners() {
     popupCloseBtn.addEventListener('click', closePopup);
   }
 
+  // 圖表錯誤重試按鈕
+  const retryBtn = document.getElementById('chart-retry-btn');
+  if (retryBtn) {
+    retryBtn.addEventListener('click', () => {
+      showGlobalProgressBar(`正在為您準備 ${currencyManager.currentFromCurrency}-${currencyManager.currentToCurrency} 的圖表...`);
+      currencyManager.loadChart();
+    });
+  }
+
+  // Esc 關閉彈窗
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const historyOverlay = document.getElementById('history-popup-overlay');
+    const popupOverlay = document.getElementById('popup-overlay');
+    if (historyOverlay && historyOverlay.classList.contains('show')) closeHistoryPopup();
+    if (popupOverlay && popupOverlay.classList.contains('show')) closePopup();
+  });
+
   const popupOverlay = document.getElementById('popup-overlay');
   if (popupOverlay) {
     popupOverlay.addEventListener('click', (e) => {
@@ -588,11 +615,21 @@ function setupHistoryPopup() {
     if (item) {
       const buyCurrency = item.dataset.buyCurrency;
       const sellCurrency = item.dataset.sellCurrency;
-      
+
       if (buyCurrency && sellCurrency) {
         closeHistoryPopup();
         currencyManager.switchCurrencies(buyCurrency, sellCurrency);
       }
+    }
+  });
+
+  // 鍵盤操作歷史項目（項目為 tabindex=0 的 div）
+  historyList.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const item = e.target.closest('.history-item');
+    if (item) {
+      e.preventDefault();
+      item.click();
     }
   });
 }

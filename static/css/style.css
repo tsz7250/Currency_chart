@@ -12,6 +12,11 @@ body {
     overflow-x: hidden;
 }
 
+/* 表單元素繼承正體字型（避免退回瀏覽器預設字體） */
+button, input, select {
+    font-family: inherit;
+}
+
 .container {
     max-width: 100%;
     width: 100%;
@@ -123,7 +128,7 @@ body {
 .right-panel .panel-title {
     font-size: 1rem;
     font-weight: 600;
-    color: #2E86AB;
+    color: #256a8a;
     margin: 0 0 12px 0;
     display: flex;
     align-items: center;
@@ -141,10 +146,10 @@ body {
     padding: 16px;
 }
 
-.right-panel .currency-selector h3 {
+.right-panel .currency-selector h2 {
     font-size: 1rem;
     font-weight: 600;
-    color: #2E86AB;
+    color: #256a8a;
     margin: 0 0 12px 0;
     display: flex;
     align-items: center;
@@ -202,7 +207,7 @@ body {
 
 .right-panel .currency-input[readonly]:hover {
     background: #e9ecef;
-    border-color: #2E86AB;
+    border-color: #256a8a;
 }
 
 .right-panel .currency-input:not([readonly]) {
@@ -212,7 +217,7 @@ body {
 
 .right-panel .currency-input:focus {
     outline: none;
-    border-color: #2E86AB;
+    border-color: #256a8a;
     box-shadow: 0 0 0 2px rgba(46, 134, 171, 0.1);
     cursor: text;
 }
@@ -224,7 +229,7 @@ body {
     top: 50%;
     transform: translateY(-50%);
     font-size: 0.8rem;
-    color: #6c757d;
+    color: #5a6268;
     cursor: pointer;
     pointer-events: auto;
     transition: all 0.3s ease;
@@ -234,12 +239,12 @@ body {
 }
 
 .right-panel .currency-search-wrapper:hover .currency-dropdown-arrow {
-    color: #2E86AB;
+    color: #256a8a;
 }
 
 .right-panel .currency-search-wrapper.dropdown-active .currency-dropdown-arrow {
     transform: translateY(-50%) rotate(180deg);
-    color: #2E86AB;
+    color: #256a8a;
 }
 
 /* 隱藏原生select */
@@ -251,7 +256,7 @@ body {
 .right-panel .exchange-arrow {
     align-self: center;
     font-size: 2rem;
-    color: #6c757d;
+    color: #5a6268;
     cursor: pointer;
     transition: all 0.3s ease;
     user-select: none;
@@ -270,7 +275,7 @@ body {
 }
 
 .right-panel .currency-notice small {
-    color: #6c757d;
+    color: #5a6268;
     font-size: 0.75rem;
     line-height: 1.4;
 }
@@ -302,7 +307,7 @@ body {
 .period-btn {
     background: white;
     border: 2px solid #2E86AB;
-    color: #2E86AB;
+    color: #256a8a;
     padding: 8px 16px;
     border-radius: 20px;
     cursor: pointer;
@@ -313,20 +318,20 @@ body {
 }
 
 .period-btn:hover {
-    background: #2E86AB;
+    background: #256a8a;
     color: white;
     transform: translateY(-1px);
 }
 
 .period-btn.active {
-    background: #2E86AB;
+    background: #256a8a;
     color: white;
 }
 
 .period-btn:disabled {
     background: #f8f9fa;
     border-color: #dee2e6;
-    color: #6c757d;
+    color: #5a6268;
     cursor: not-allowed;
     opacity: 0.6;
     transform: none !important;
@@ -441,7 +446,7 @@ body {
 
 .chart-loading > div {
     font-size: 1rem;
-    color: #6c757d;
+    color: #5a6268;
 }
 
 /* Spinner 動畫 */
@@ -492,7 +497,7 @@ body {
 
 .loading-subtext {
     font-size: 0.9rem;
-    color: #6c757d;
+    color: #5a6268;
     text-align: center;
     margin-top: 5px;
 }
@@ -545,7 +550,7 @@ body {
 .progress-percentage {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #2E86AB;
+    color: #256a8a;
     margin-top: 8px;
 }
 
@@ -579,7 +584,7 @@ body {
 
 .spinner-container p {
     font-size: 1rem;
-    color: #6c757d;
+    color: #5a6268;
     margin: 0;
     font-weight: 500;
 }
@@ -621,10 +626,10 @@ body {
     border-bottom: 2px solid #f8f9fa;
 }
 
-.right-panel .latest-rate-header h3 {
+.right-panel .latest-rate-header h2 {
     font-size: 1rem;
     font-weight: 600;
-    color: #2E86AB;
+    color: #256a8a;
     margin: 0;
     display: flex;
     align-items: center;
@@ -650,13 +655,35 @@ body {
 .right-panel .rate-value {
     font-size: 1.4rem;
     font-weight: bold;
-    color: #2E86AB;
+    color: #256a8a;
     margin-bottom: 4px;
+}
+
+.right-panel .rate-hint {
+    font-size: 0.95rem;
+    font-weight: normal;
+    color: #5a6268;
+}
+
+.right-panel .rate-best {
+    color: #28a745;
+    font-weight: 600;
+    font-size: 0.75rem;
+    background: rgba(40, 167, 69, 0.1);
+    padding: 2px 8px;
+    border-radius: 12px;
+    display: inline-block;
+    margin: 0 auto;
+}
+
+.right-panel .rate-lowest {
+    color: #5a6268;
+    font-size: 0.75rem;
 }
 
 .right-panel .rate-label {
     font-size: 0.8rem;
-    color: #6c757d;
+    color: #5a6268;
     margin-bottom: 6px;
 }
 
@@ -665,7 +692,7 @@ body {
     justify-content: space-between;
     align-items: center;
     font-size: 0.75rem;
-    color: #6c757d;
+    color: #5a6268;
     margin-top: 6px;
 }
 
@@ -689,7 +716,7 @@ body {
 }
 
 .right-panel .rate-trend.stable {
-    color: #6c757d;
+    color: #5a6268;
 }
 
 .right-panel .trend-icon {
@@ -726,10 +753,10 @@ body {
 }
 
 /* 統計標題 */
-.right-panel .stats-header h3 {
+.right-panel .stats-header h2 {
     font-size: 1rem;
     font-weight: 600;
-    color: #2E86AB;
+    color: #256a8a;
     margin: 0 0 12px 0;
     display: flex;
     align-items: center;
@@ -908,7 +935,7 @@ body {
     border: none;
     font-size: 1.5rem;
     cursor: pointer;
-    color: #6c757d;
+    color: #5a6268;
     width: 30px;
     height: 30px;
     display: flex;
@@ -934,7 +961,7 @@ body {
 }
 
 .popup-body strong {
-    color: #2E86AB;
+    color: #256a8a;
     font-weight: 600;
 }
 
@@ -1101,7 +1128,7 @@ body {
 }
 
 .right-panel .currency-dropdown-item.selected {
-    background-color: #2E86AB;
+    background-color: #256a8a;
     color: white;
     font-weight: 500;
 }
@@ -1118,7 +1145,7 @@ body {
 }
 
 .right-panel .currency-search-wrapper.dropdown-active .currency-input {
-    border-color: #2E86AB;
+    border-color: #256a8a;
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
 }
@@ -1130,7 +1157,7 @@ body {
 }
 
 .right-panel .confirm-btn {
-    background-color: #2E86AB;
+    background-color: #256a8a;
     color: white;
     border: none;
     padding: 10px 20px;
@@ -1165,7 +1192,7 @@ body {
     border-radius: 0 0 6px 6px;
     padding: 8px 12px;
     font-size: 0.75rem;
-    color: #6c757d;
+    color: #5a6268;
     z-index: 999;
     display: none;
 }
@@ -1276,7 +1303,7 @@ body {
     transform: translate(-50%, -50%);
     font-size: 1.1rem;
     font-weight: bold;
-    color: #2E86AB;
+    color: #256a8a;
     text-align: center;
 }
 
@@ -1306,7 +1333,7 @@ body {
 .right-panel .progress-main-subtext {
     text-align: center;
     font-size: 0.85rem;
-    color: #6c757d;
+    color: #5a6268;
     margin-top: 5px;
 }
 
@@ -1354,7 +1381,7 @@ body {
 
 .right-panel .progress-status {
     font-size: 0.8rem;
-    color: #6c757d;
+    color: #5a6268;
     font-weight: 500;
     padding: 2px 8px;
     border-radius: 12px;
@@ -1425,20 +1452,20 @@ body {
     background-color: transparent;
     cursor: pointer;
     font-size: 0.9rem;
-    color: #6c757d;
+    color: #5a6268;
     transition: all 0.2s ease;
     border-bottom: 2px solid transparent;
     margin-bottom: -1px; /* Overlap the container's border */
 }
 
 .history-tab-btn:hover {
-    color: #2E86AB;
+    color: #256a8a;
 }
 
 .history-tab-btn.active {
-    color: #2E86AB;
+    color: #256a8a;
     font-weight: 600;
-    border-bottom-color: #2E86AB;
+    border-bottom-color: #256a8a;
 }
 
 .history-list {
@@ -1475,7 +1502,7 @@ body {
 .history-empty {
     text-align: center;
     padding: 40px 20px;
-    color: #6c757d;
+    color: #5a6268;
     font-size: 0.9rem;
 } 
 
@@ -1483,7 +1510,7 @@ body {
 .control-btn, #history-btn {
     padding: 10px 20px;
     border: none;
-    background-color: #2E86AB;
+    background-color: #256a8a;
     color: white;
     border-radius: 8px;
     cursor: pointer;
@@ -1507,4 +1534,38 @@ body {
 #history-btn::before {
     content: '📜'; /* 新增圖示 */
     font-size: 1.1rem;
-} 
+}
+
+/* 圖表錯誤重試按鈕 */
+.retry-btn {
+    display: none;
+    margin: 12px auto 0;
+    padding: 8px 24px;
+    background-color: #256a8a;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+}
+
+.retry-btn:hover {
+    background-color: #1e5470;
+}
+
+.history-item:focus {
+    background-color: #f8f9fa;
+    outline: 2px solid #256a8a;
+    outline-offset: -2px;
+}
+
+/* 使用者偏好減少動態效果時，停用無限循環動畫 */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}

@@ -68,7 +68,7 @@ const chartCustomDrawPlugin = {
 };
 
 export function showError(message) {
-  const errorEl = document.getElementById('error-message');
+  const errorEl = document.getElementById('error');
   if (errorEl) {
     errorEl.textContent = message;
     errorEl.style.display = 'block';
@@ -152,10 +152,12 @@ export function showPopup(title, content) {
     popupTitle.textContent = title;
     popupBody.innerHTML = content;
     popupOverlay.style.display = 'flex';
-    
+
     // 添加淡入動畫效果
     setTimeout(() => {
       popupOverlay.classList.add('show');
+      const closeBtn = document.getElementById('popup-close-btn');
+      if (closeBtn) closeBtn.focus();
     }, 10);
   }
 }
@@ -219,6 +221,8 @@ export function showGlobalProgressBar(message = '正在請求後端生成圖表.
   if (chartCanvas) chartCanvas.style.display = 'none';
   if (chartImage) chartImage.style.display = 'none';
   if (errorDisplay) errorDisplay.style.display = 'none';
+  const retryBtn = document.getElementById('chart-retry-btn');
+  if (retryBtn) retryBtn.style.display = 'none';
   
   // 設定載入訊息
   if (loadingMessageEl) loadingMessageEl.textContent = message;
@@ -326,12 +330,19 @@ export async function populateCurrencySelectors(fromCurrencyId, toCurrencyId) {
   }
 }
 
-// 處理圖表載入錯誤
+// 處理圖表載入錯誤（保留圖表容器與重試鈕，不可覆寫整個容器）
 export function handleChartError(message) {
-  const chartContainer = document.getElementById('chart-container');
-  if (chartContainer) {
-    chartContainer.innerHTML = `<p class="error">${message}</p>`;
+  const canvas = document.getElementById('rateChart');
+  const spinner = document.getElementById('chartSpinner');
+  const errorDisplay = document.getElementById('chartErrorDisplay');
+  const retryBtn = document.getElementById('chart-retry-btn');
+  if (spinner) spinner.style.display = 'none';
+  if (canvas) canvas.style.display = 'none';
+  if (errorDisplay) {
+    errorDisplay.textContent = `⚠️ ${message}`;
+    errorDisplay.style.display = 'block';
   }
+  if (retryBtn) retryBtn.style.display = 'inline-block';
 }
 
 /**
@@ -364,6 +375,8 @@ export function renderChart(chartData, stats, fromCurrency, toCurrency, period) 
 
     if (chartImage) chartImage.style.display = 'none';
     if (chartErrorDisplay) chartErrorDisplay.style.display = 'none';
+    const retryBtn = document.getElementById('chart-retry-btn');
+    if (retryBtn) retryBtn.style.display = 'none';
     canvas.style.display = 'block';
 
     const labels = data.dates;
@@ -375,6 +388,7 @@ export function renderChart(chartData, stats, fromCurrency, toCurrency, period) 
 
     const periodNames = { 7: '近1週', 30: '近1個月', 90: '近3個月', 180: '近6個月' };
     const periodLabel = periodNames[activePeriod] || `近${activePeriod}天`;
+    canvas.setAttribute('aria-label', `${fromCurr} 對 ${toCurr} 匯率走勢圖（${periodLabel}）`);
 
     // 計算統計值與極值索引
     const maxRate = Math.max(...rates);
@@ -614,7 +628,11 @@ export function openHistoryPopup() {
   const popup = document.getElementById('history-popup-overlay');
   if (popup) {
     popup.style.display = 'flex';
-    setTimeout(() => popup.classList.add('show'), 10);
+    setTimeout(() => {
+      popup.classList.add('show');
+      const closeBtn = document.getElementById('history-popup-close-btn');
+      if (closeBtn) closeBtn.focus();
+    }, 10);
   }
 }
 
@@ -639,7 +657,7 @@ export function renderHistoryList(pairs, type) {
   }
 
   listEl.innerHTML = pairs.map(pair => `
-    <div class="history-item" data-buy-currency="${pair.buy_currency}" data-sell-currency="${pair.sell_currency}">
+    <div class="history-item" tabindex="0" role="button" aria-label="切換到 ${pair.buy_currency} 兌 ${pair.sell_currency}" data-buy-currency="${pair.buy_currency}" data-sell-currency="${pair.sell_currency}">
       <span>${pair.buy_currency}</span>
       <span class="history-arrow">→</span>
       <span>${pair.sell_currency}</span>
