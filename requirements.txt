@@ -1,7 +1,9 @@
 Flask
+python-dotenv
 requests
 pandas
 schedule
+pytz
 gunicorn
 gevent
 playwright==1.58.0

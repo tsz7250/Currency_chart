@@ -2,6 +2,7 @@
  * TWD-HKD 靜態匯率展示 — 原版視覺復刻與 Chart.js 渲染
  * ponytail: 純前端無後端依賴，復刻原版圖表與微軟正黑體排版
  */
+import { setupAlertPopup } from './alert_popup.js';
 
 let rateData = {};
 let currentPeriod = 7;
@@ -72,6 +73,7 @@ const chartCustomDrawPlugin = {
 
 // 頁面載入
 document.addEventListener('DOMContentLoaded', async () => {
+  setupAlertPopup();
   await loadData();
   setupPeriodButtons();
   render();

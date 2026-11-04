@@ -39,6 +39,7 @@ class CurrencyManager {
     saveToStorage() {
       sessionStorage.setItem('fromCurrency', this.currentFromCurrency);
       sessionStorage.setItem('toCurrency', this.currentToCurrency);
+      document.dispatchEvent(new Event('alert-currency-changed'));
     }
   
     // 檢查是否可以切換貨幣（圖表和匯率都載入完成）

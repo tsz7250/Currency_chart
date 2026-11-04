@@ -16,7 +16,7 @@ SERVER_INSTANCE_ID = str(uuid.uuid4())
 @bp.route('/')
 def index():
     """主頁面"""
-    return render_template('index.html')
+    return render_template('index.html', alerts_enabled=current_app.alerts.enabled)
 
 @bp.route('/api/chart')
 def get_chart():

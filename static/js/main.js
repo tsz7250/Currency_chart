@@ -20,6 +20,7 @@ import {
 } from './dom.js';
 import { CurrencyManager } from './currency_manager.js';
 import { userHistoryManager } from './history_manager.js';
+import { setupAlerts } from './alerts.js';
 
 // 全域變數
 let currentPeriod = '7'; // 預設圖表週期
@@ -80,6 +81,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   // CurrencyManager 已經在初始化時處理了 sessionStorage 載入
   // 更新 select 元素的值
   currencyManager.updateCurrencySelectors();
+  setupAlerts(currencyManager);
 
   // 【修正】必須先建立 SSE 連接，才能觸發任何可能發送 SSE 事件的行為
   // 建立SSE連接

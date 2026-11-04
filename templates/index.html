@@ -30,7 +30,10 @@
               <button class="period-btn" data-period="90">近3個月</button>
               <button class="period-btn" data-period="180">近6個月</button>
             </div>
-            <button id="history-btn" class="control-btn">歷史記錄</button>
+            <div class="control-actions">
+              <button id="history-btn" class="control-btn">歷史記錄</button>
+              <button id="alert-btn" class="control-btn" aria-haspopup="dialog" aria-controls="alert-popup-overlay" aria-expanded="false">到價提醒</button>
+            </div>
           </div>
         </div>
 
@@ -129,6 +132,37 @@
             </div>
         </div>
         
+      </div>
+    </div>
+  </div>
+
+  <div id="alert-popup-overlay" class="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="alert-popup-title" aria-hidden="true" style="display: none;">
+    <div class="popup-content">
+      <div class="popup-header">
+        <h2 class="popup-title" id="alert-popup-title">到價 Email 提醒</h2>
+        <button id="alert-popup-close-btn" class="popup-close" aria-label="關閉到價提醒">×</button>
+      </div>
+      <div class="popup-body">
+        {% if alerts_enabled %}
+        <p>每日台北時間 09:00 檢查，09:30 重試。每個提醒每日最多通知一次。</p>
+        <form id="alert-form">
+          <p id="alert-pair" aria-live="polite">使用目前已確認的幣別對</p>
+          <label for="alert-email">Email</label>
+          <input id="alert-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+          <label for="alert-direction">提醒條件</label>
+          <select id="alert-direction" name="direction">
+            <option value="gte">大於等於目標匯率</option>
+            <option value="lte">小於等於目標匯率</option>
+          </select>
+          <label for="alert-target">目標匯率</label>
+          <input id="alert-target" name="target_rate" type="number" step="any" min="0.000000000000000001" required>
+          <button type="submit" class="confirm-btn">寄送驗證信</button>
+          <p id="alert-message" role="status" aria-live="polite"></p>
+        </form>
+        <small>確認信箱後才啟用。來源為 Mastercard 日匯率，非即時報價。可由信件取消提醒。</small>
+        {% else %}
+        <p>到價提醒尚未設定寄信服務，請聯絡維護者。</p>
+        {% endif %}
       </div>
     </div>
   </div>

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>匯率提醒確認</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <main class="container alert-confirmation">
+    <h1>匯率到價提醒</h1>
+    {% if not valid %}
+    <p>連結無效、已使用或已過期。請重新申請提醒。</p>
+    {% elif done %}
+    <p role="status">{{ '提醒已啟用，將於每日台北時間 09:00 檢查。' if action == 'verify' else '提醒已取消，不再寄送通知。' }}</p>
+    {% else %}
+    <p>{{ '確認後才會啟用提醒。每個提醒每日最多通知一次。' if action == 'verify' else '確認後將停止這個提醒。' }}</p>
+    <form method="post">
+      <button type="submit" class="confirm-btn">{{ '確認訂閱' if action == 'verify' else '取消提醒' }}</button>
+    </form>
+    {% endif %}
+    <p><a href="{{ url_for('main.index') }}">返回匯率圖表</a></p>
+  </main>
+</body>
+</html>

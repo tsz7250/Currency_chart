@@ -37,3 +37,7 @@ README.md
 docs
 scripts
 .github
+instance
+*.sqlite3
+*.sqlite3-*
+.env

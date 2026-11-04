@@ -8,8 +8,16 @@ services:
       - HOST=0.0.0.0
       - PORT=5000
       - TZ=Asia/Taipei
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-465}
+      - SMTP_USERNAME=${SMTP_USERNAME:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - ALERT_SENDER_EMAIL=${ALERT_SENDER_EMAIL:-}
+      - ALERT_BASE_URL=${ALERT_BASE_URL:-}
+      - ALERT_DATABASE=/app/instance/alerts.sqlite3
     tty: true
     volumes:
+      - ./instance:/app/instance
       # 匯率歷史數據（持久化）
       - ./TWD-HKD_180d.json:/app/TWD-HKD_180d.json
       # Mastercard Cookies（持久化）

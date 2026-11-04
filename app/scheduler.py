@@ -270,6 +270,11 @@ def scheduled_update():
 
         except Exception as e:
             logger.error(f"排程更新失敗: {str(e)}", exc_info=True)
+        finally:
+            try:
+                _app.alerts.check(manager)
+            except Exception:
+                logger.exception('到價提醒排程失敗')
 
 def clear_cache_with_context():
     """帶上下文清理緩存"""
@@ -289,8 +294,8 @@ def init_scheduler(app):
     global _app
     _app = app
 
-    schedule.every().day.at("09:00").do(scheduled_update)
-    schedule.every().day.at("09:30").do(scheduled_update)  # 重試排程
+    schedule.every().day.at("09:00", "Asia/Taipei").do(scheduled_update)
+    schedule.every().day.at("09:30", "Asia/Taipei").do(scheduled_update)  # 重試排程
     schedule.every().hour.do(clear_cache_with_context)
 
     scheduler_thread = Thread(target=run_scheduler, daemon=True)

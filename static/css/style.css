@@ -304,6 +304,17 @@ button, input, select {
     flex-wrap: wrap;
 }
 
+.control-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.control-actions .control-btn {
+    margin-left: 0;
+    white-space: nowrap;
+}
+
 .period-btn {
     background: white;
     border: 2px solid #2E86AB;
@@ -1559,6 +1570,88 @@ button, input, select {
     background-color: #f8f9fa;
     outline: 2px solid #256a8a;
     outline-offset: -2px;
+}
+
+#alert-popup-overlay .popup-content {
+    width: calc(100% - 24px);
+    max-width: 560px;
+    max-height: calc(100dvh - 24px);
+    padding: 0;
+}
+
+#alert-popup-overlay .popup-close {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+}
+
+#alert-popup-overlay .popup-body {
+    min-height: 0;
+}
+
+#alert-popup-overlay p, #alert-popup-overlay small {
+    display: block;
+    margin: 10px 0;
+    line-height: 1.6;
+}
+
+#alert-form {
+    display: grid;
+    gap: 8px;
+}
+
+#alert-form input, #alert-form select {
+    width: 100%;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid #767676;
+    border-radius: 4px;
+    background: white;
+    color: #222;
+}
+
+#alert-form button {
+    display: block;
+    margin-top: 8px;
+    padding: 10px 20px;
+    border: 0;
+    border-radius: 6px;
+    background: #256a8a;
+    color: white;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+#alert-form button:hover:not(:disabled) {
+    background: #1e5470;
+}
+
+#alert-form button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+#alert-popup-overlay :focus-visible {
+    outline: 2px solid #256a8a;
+    outline-offset: 2px;
+}
+
+.alert-confirmation button {
+    padding: 10px 20px;
+    border: 0;
+    border-radius: 6px;
+    background: #256a8a;
+    color: white;
+    cursor: pointer;
+}
+
+.alert-confirmation {
+    max-width: 640px;
+    height: auto;
+    min-height: 100vh;
+    margin: auto;
+    padding: 24px;
+    gap: 20px;
 }
 
 /* 使用者偏好減少動態效果時，停用無限循環動畫 */

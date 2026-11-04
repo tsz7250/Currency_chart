@@ -662,7 +662,7 @@ class ExchangeRateManager:
             'date_range': f"{dates_str[0]} 至 {dates_str[-1]}"
         }
 
-    def get_current_rate(self, buy_currency, sell_currency):
+    def get_current_rate(self, buy_currency, sell_currency, force_refresh=False):
         """
         獲取最新匯率，整合了 TWD-HKD 本地數據、其他貨幣對的 LRU 快取和 API 後備機制。
         這是獲取最新匯率的唯一真實來源 (Single Source of Truth)。
@@ -700,7 +700,7 @@ class ExchangeRateManager:
         cache_key = (buy_currency, sell_currency)
         
         # 1. 嘗試從快取中獲取數據
-        cached_rate = self.latest_rate_cache.get(cache_key)
+        cached_rate = None if force_refresh else self.latest_rate_cache.get(cache_key)
         if cached_rate:
             current_app.logger.info(f"✅ API LATEST (CACHE): {buy_currency}-{sell_currency} - 成功從快取提供")
             response_data = cached_rate.copy()
@@ -709,7 +709,11 @@ class ExchangeRateManager:
 
         # 2. 如果快取未命中，則從 API 即時抓取
         current_app.logger.info(f"🔄 API LATEST (FETCH): {buy_currency}-{sell_currency} - 快取未命中，嘗試從 API 獲取...")
-        current_date = datetime.now()
+        if force_refresh:
+            from .alerts import now_taipei
+            current_date = now_taipei()
+        else:
+            current_date = datetime.now()
         while current_date.weekday() >= 5: # 尋找最近的工作日
             current_date -= timedelta(days=1)
 

@@ -1,4 +1,5 @@
 from flask import Flask
+from dotenv import load_dotenv
 import os
 import atexit
 import signal
@@ -297,6 +298,7 @@ def auto_update_data():
         print("   💡 提示：請檢查網路與 cookies 狀態，系統會在之後自動重試")
 
 def create_app():
+    load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'), override=False)
     app = Flask(__name__, static_folder='../static', template_folder='../templates')
     
     # 設置日誌系統
@@ -309,6 +311,16 @@ def create_app():
     
     # 建立服務實例並附加到 app（載入更新後的數據）
     app.manager = ExchangeRateManager()
+    from .alerts import AlertService, bp as alerts_bp
+    app.alerts = AlertService(
+        os.environ.get('ALERT_DATABASE', os.path.join(app.instance_path, 'alerts.sqlite3')),
+        sender=os.environ.get('ALERT_SENDER_EMAIL', ''),
+        base_url=os.environ.get('ALERT_BASE_URL', ''),
+        smtp_host=os.environ.get('SMTP_HOST', 'smtp.gmail.com'),
+        smtp_port=os.environ.get('SMTP_PORT', '465'),
+        smtp_username=os.environ.get('SMTP_USERNAME', ''),
+        smtp_password=os.environ.get('SMTP_PASSWORD', ''))
+    app.register_blueprint(alerts_bp)
 
     with app.app_context():
         # 引入並註冊藍圖
