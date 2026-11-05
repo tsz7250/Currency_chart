@@ -21,6 +21,7 @@ import {
 import { CurrencyManager } from './currency_manager.js';
 import { userHistoryManager } from './history_manager.js';
 import { setupAlerts } from './alerts.js';
+import { setupForecast } from './forecast.js';
 
 // 全域變數
 let currentPeriod = '7'; // 預設圖表週期
@@ -82,6 +83,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   // 更新 select 元素的值
   currencyManager.updateCurrencySelectors();
   setupAlerts(currencyManager);
+  setupForecast(currencyManager);
 
   // 【修正】必須先建立 SSE 連接，才能觸發任何可能發送 SSE 事件的行為
   // 建立SSE連接
@@ -418,6 +420,9 @@ function setupSSEConnection() {
       // 更新前端快取（無論是否為當前 period）
       const cacheKey = `${chartData.buy_currency}_${chartData.sell_currency}_${chartData.period}`;
       chartCache[cacheKey] = chartData;
+      if (String(chartData.period) === '180') {
+        document.dispatchEvent(new CustomEvent('forecast-history-ready', { detail: chartData }));
+      }
 
       if (isCurrentPeriod) {
         // 隱藏全域進度條並渲染

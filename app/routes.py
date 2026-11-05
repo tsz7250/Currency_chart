@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, jsonify, Response, current_app
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import queue
 import schedule
@@ -8,10 +8,62 @@ import uuid
 from .sse import sse_clients, sse_lock, sse_stream
 from .scheduler import scheduled_update
 from .utils import validate_currency_code, validate_period
+from .forecast import prepare_entries, context
+from .alerts import now_taipei
 
 bp = Blueprint('main', __name__)
 
 SERVER_INSTANCE_ID = str(uuid.uuid4())
+
+
+@bp.route('/api/forecast')
+def get_forecast():
+    buy = request.args.get('buy_currency', 'TWD')
+    sell = request.args.get('sell_currency', 'HKD')
+    try:
+        horizon = int(request.args.get('horizon', '7'))
+    except ValueError:
+        horizon = 0
+    if horizon not in (7, 14, 30) or not all(validate_currency_code(c) and c.isascii() for c in (buy, sell)):
+        return jsonify(status='invalid', message='請使用有效幣別及 7／14／30 天預測期間。'), 400
+    if current_app.config.get('FORECAST_DISTRIBUTED'):
+        result, status = current_app.forecasts.get_release(f'{buy}-{sell}', horizon, now_taipei().date())
+        response = jsonify(result)
+        if status == 202:
+            response.headers['Retry-After'] = '2'
+        return response, status
+    if (buy, sell) == ('TWD', 'HKD') and isinstance(current_app.manager.data, dict):
+        # 直接讀取原始快照，讓同一天的價格修正也能使預測快取失效。
+        with current_app.manager.data_lock:
+            history = dict(current_app.manager.data)
+        chart = {'dates': list(history), 'rates': [v.get('rate') for v in history.values()]}
+    else:
+        chart = current_app.manager.create_chart(180, buy, sell)
+    if not chart:
+        return jsonify(status='pending', message='正在取得 180 天歷史資料。'), 202
+    try:
+        entries = prepare_entries(chart['dates'], chart['rates'])
+        age = (now_taipei().date() - entries[-1][0]).days
+        if age > 7 or age < 0:
+            return jsonify(status='stale', message='歷史資料過期或日期異常，暫不提供預測。'), 200
+        if context(entries) is None:
+            return jsonify(status='insufficient', message='最近 90 天至少需要 40 筆報價。'), 200
+    except (ValueError, KeyError, TypeError):
+        return jsonify(status='insufficient', message='歷史資料無效，暫不提供預測。'), 200
+    result, status = current_app.forecasts.get((buy, sell), entries)
+    result = dict(result, buy_currency=buy, sell_currency=sell, horizon=horizon)
+    if result['status'] == 'ready':
+        start = entries[-1][0] - timedelta(days=6)
+        lookup = dict(entries)
+        result['recent_history'] = [{'date': (start + timedelta(days=i)).isoformat(),
+                                     'rate': lookup.get(start + timedelta(days=i))} for i in range(7)]
+        result['points'] = result['points'][:horizon]
+        result['backtest'] = result['backtest'][str(horizon)]
+        result['experimental'] = result['backtest']['calibrated']['samples'] < 20
+    response = jsonify(result)
+    if status == 202:
+        response.headers['Retry-After'] = '2'
+    return response, status
 
 @bp.route('/')
 def index():
@@ -269,4 +321,4 @@ def sse_events():
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['Connection'] = 'keep-alive'
     response.headers['Access-Control-Allow-Origin'] = '*'
-    return response 
+    return response

@@ -1,5 +1,5 @@
 # 替換為極輕量的 Debian Linux + Python 3.10 基礎
-FROM python:3.10-slim-bookworm
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
 
 # 2. 安裝 Python 套件（此步驟會安裝 Playwright 的 Python 連接器）
 COPY requirements.txt .
+RUN pip install --no-cache-dir torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 3. 關鍵瘦身：【僅下載】Chromium 瀏覽器，並且【僅安裝】Chromium 所需的 OS 相依庫

@@ -140,33 +140,16 @@ class ExchangeRateManager:
             return None
 
     def update_data(self, days=180):
-        """清理舊數據並重新載入（不再從 API 獲取新數據）
+        """重新載入原始數據；顯示期間不再決定資料保存期限。
         
         數據更新由應用啟動邏輯與排程自動完成，無需另外執行外部腳本。
         """
         # 如需更新數據，請運行：python update_twd_hkd_data.py
         
-        end_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        start_date = end_date - timedelta(days=days)
-        
-        print(f"🔍 開始清理 {days} 天以外的舊數據...")
+        print(f"🔍 重新載入資料，圖表顯示期間 {days} 天；保留完整歷史")
         
         # 重新載入數據（可能已被外部腳本更新）
         self.data = self.load_data()
-        
-        # 清理超過指定天數的舊數據
-        old_count = len(self.data)
-        cleaned_data = {}
-        removed_count = 0
-        
-        for date_str, data_entry in self.data.items():
-            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-            if date_obj >= start_date:
-                cleaned_data[date_str] = data_entry
-            else:
-                removed_count += 1
-        
-        self.data = cleaned_data
         
         # 顯示數據狀態
         if self.data:
@@ -175,14 +158,6 @@ class ExchangeRateManager:
             print(f"📊 當前數據量：{len(self.data)} 筆")
         else:
             print(f"⚠️ 沒有本地數據，請運行：python update_twd_hkd_data.py")
-        
-        # 保存清理結果
-        if removed_count > 0:
-            self.save_data()
-            print(f"🗑️ 清理了 {removed_count} 筆舊數據")
-        
-        if removed_count == 0 and old_count > 0:
-            print("✅ 數據已是最新狀態")
         
         return 0  # 不再返回更新數量，因為不從 API 獲取
 
@@ -847,4 +822,4 @@ class ExchangeRateManager:
             
         except Exception as e:
             print(f"❌ get_cached_pairs 發生錯誤: {e}")
-            return [] 
+            return []

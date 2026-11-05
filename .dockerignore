@@ -35,9 +35,10 @@ README.md
 
 # GitHub Pages & CI
 docs
-scripts
 .github
 instance
 *.sqlite3
 *.sqlite3-*
 .env
+mastercard_cookies.json
+TWD-HKD_180d.json

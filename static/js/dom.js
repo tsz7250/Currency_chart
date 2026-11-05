@@ -379,7 +379,10 @@ export function renderChart(chartData, stats, fromCurrency, toCurrency, period) 
     if (retryBtn) retryBtn.style.display = 'none';
     canvas.style.display = 'block';
 
-    const labels = data.dates;
+    const endDate = data.dates.at(-1);
+    const startTime = Date.parse(`${data.dates[0]}T00:00:00Z`);
+    const dayIndex = date => Math.round((Date.parse(`${date}T00:00:00Z`) - startTime) / 86400000);
+    const labels = Array.from({ length: dayIndex(endDate) + 1 }, (_, i) => new Date(startTime + i * 86400000).toISOString().slice(0, 10));
     const rates = data.rates;
 
     if (chartInstance) {
@@ -394,17 +397,20 @@ export function renderChart(chartData, stats, fromCurrency, toCurrency, period) 
     const maxRate = Math.max(...rates);
     const minRate = Math.min(...rates);
     const avgRate = Number((rates.reduce((s, r) => s + r, 0) / rates.length).toFixed(4));
-    const maxIndex = rates.indexOf(maxRate);
-    const minIndex = rates.indexOf(minRate);
+    const maxIndex = dayIndex(data.dates[rates.indexOf(maxRate)]);
+    const minIndex = dayIndex(data.dates[rates.indexOf(minRate)]);
+    const plotMin = minRate;
+    const plotMax = maxRate;
 
     // Y 軸緩衝與整數步長網格對齊
-    const yRange = maxRate - minRate || 0.001;
+    const yRange = plotMax - plotMin || Math.abs(plotMax) * 0.01;
     const yPaddingTop = yRange * 0.22;
     const yPaddingBottom = yRange * 0.15;
-    const _yCandidates = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01];
+    const magnitude = 10 ** Math.floor(Math.log10(yRange / 5));
+    const _yCandidates = [1, 2, 5, 10].map(x => x * magnitude);
     const yStep = _yCandidates.find(s => yRange / s >= 4 && yRange / s <= 8) ?? _yCandidates[_yCandidates.length - 1];
-    const yMin = Number((Math.floor((minRate - yPaddingBottom) / yStep) * yStep).toFixed(4));
-    const yMax = Number((Math.ceil((maxRate + yPaddingTop) / yStep) * yStep).toFixed(4));
+    const yMin = Math.floor((plotMin - yPaddingBottom) / yStep) * yStep;
+    const yMax = Math.ceil((plotMax + yPaddingTop) / yStep) * yStep;
 
     // X 軸等距抽樣刻度索引（保證首尾兩點必定呈現且間距均勻）
     const tickIndices = [];
@@ -475,13 +481,12 @@ export function renderChart(chartData, stats, fromCurrency, toCurrency, period) 
     };
 
     const ctx = canvas.getContext('2d');
-
     chartInstance = new Chart(ctx, {
       type: 'line',
       data: {
         datasets: [{
           label: '匯率',
-          data: rates.map((r, i) => ({ x: i, y: r })),
+          data: rates.map((r, i) => ({ x: dayIndex(data.dates[i]), y: r })),
           borderColor: '#2E86AB',
           backgroundColor: 'rgba(46, 134, 171, 0.05)',
           borderWidth: 2,
@@ -528,7 +533,7 @@ export function renderChart(chartData, stats, fromCurrency, toCurrency, period) 
             displayColors: false,
             callbacks: {
               title: (items) => labels[items[0].raw.x] || '',
-              label: (item) => `匯率: ${item.raw.y.toFixed(7)}`,
+              label: (item) => `${item.dataset.label}: ${item.raw.y.toFixed(7)}`,
             }
           }
         },

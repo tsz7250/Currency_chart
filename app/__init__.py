@@ -311,6 +311,9 @@ def create_app():
     
     # 建立服務實例並附加到 app（載入更新後的數據）
     app.manager = ExchangeRateManager()
+    from .forecast_distribution import DistributedForecastService
+    app.forecasts = DistributedForecastService(app.instance_path)
+    app.config['FORECAST_DISTRIBUTED'] = True
     from .alerts import AlertService, bp as alerts_bp
     app.alerts = AlertService(
         os.environ.get('ALERT_DATABASE', os.path.join(app.instance_path, 'alerts.sqlite3')),
@@ -351,6 +354,8 @@ def create_app():
                 app.manager.shutdown()
             except Exception as e:
                 print(f"⚠️ 清理資源時發生錯誤: {e}")
+        if hasattr(app, 'forecasts'):
+            app.forecasts.shutdown()
         print("✅ 清理完成")
     
     # 註冊 atexit 清理函數
@@ -364,4 +369,4 @@ def create_app():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    return app 
+    return app

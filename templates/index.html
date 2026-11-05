@@ -31,6 +31,7 @@
               <button class="period-btn" data-period="180">近6個月</button>
             </div>
             <div class="control-actions">
+              <button id="forecast-btn" class="control-btn" aria-haspopup="dialog" aria-controls="forecast-popup-overlay" aria-expanded="false">未來預測</button>
               <button id="history-btn" class="control-btn">歷史記錄</button>
               <button id="alert-btn" class="control-btn" aria-haspopup="dialog" aria-controls="alert-popup-overlay" aria-expanded="false">到價提醒</button>
             </div>
@@ -132,6 +133,30 @@
             </div>
         </div>
         
+      </div>
+    </div>
+  </div>
+
+  <div id="forecast-popup-overlay" class="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="forecast-popup-title" aria-hidden="true" style="display: none;">
+    <div class="popup-content forecast-popup-content">
+      <div class="popup-header">
+        <h2 class="popup-title" id="forecast-popup-title">未來預測</h2>
+        <button id="forecast-close" class="popup-close" aria-label="關閉未來預測">×</button>
+      </div>
+      <div class="popup-body">
+        <div class="forecast-controls">
+          <label for="forecast-horizon">預測期間</label>
+          <select id="forecast-horizon">
+            <option value="7">未來 7 天</option>
+            <option value="14">未來 14 天</option>
+            <option value="30">未來 30 天</option>
+          </select>
+          <button id="forecast-retry" type="button" hidden>重試預測</button>
+          <p id="forecast-status" role="status" aria-live="polite"></p>
+        </div>
+        <div class="forecast-chart-container"><canvas id="forecastChart" role="img" aria-label="近 7 天實際走勢與未來預測"></canvas></div>
+        <p id="forecast-metrics"></p>
+        <p class="forecast-note">方向評分採漲／平／跌三類，門檻 ±0.1%；Precision、Recall、F1 為三類等權平均。此為目前模型的滾動回測，並非封存測試。</p>
       </div>
     </div>
   </div>
