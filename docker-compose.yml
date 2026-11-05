@@ -15,8 +15,6 @@ services:
       - ALERT_SENDER_EMAIL=${ALERT_SENDER_EMAIL:-}
       - ALERT_BASE_URL=${ALERT_BASE_URL:-}
       - ALERT_DATABASE=/app/instance/alerts.sqlite3
-      - FORECAST_RELEASE_REPO=${FORECAST_RELEASE_REPO:-tsz7250/Currency_chart}
-      - FORECAST_ROLE=${FORECAST_ROLE:-client}
     tty: true
     volumes:
       - ./instance:/app/instance

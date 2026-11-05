@@ -310,10 +310,9 @@ def create_app():
         auto_update_data()
     
     # 建立服務實例並附加到 app（載入更新後的數據）
-    app.manager = ExchangeRateManager()
-    from .forecast_distribution import DistributedForecastService
-    app.forecasts = DistributedForecastService(app.instance_path)
-    app.config['FORECAST_DISTRIBUTED'] = True
+    app.manager = ExchangeRateManager(app.instance_path)
+    from .forecast_service import ForecastService
+    app.forecasts = ForecastService(app.instance_path)
     from .alerts import AlertService, bp as alerts_bp
     app.alerts = AlertService(
         os.environ.get('ALERT_DATABASE', os.path.join(app.instance_path, 'alerts.sqlite3')),

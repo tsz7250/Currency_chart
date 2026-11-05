@@ -297,17 +297,6 @@ def init_scheduler(app):
     schedule.every().day.at("09:00", "Asia/Taipei").do(scheduled_update)
     schedule.every().day.at("09:30", "Asia/Taipei").do(scheduled_update)  # 重試排程
     schedule.every().hour.do(clear_cache_with_context)
-    from .forecast_shadow import launch_shadow
-    from .forecast_supervised_shadow import launch_supervised
-    def run_forecast_shadows():
-        if app.config.get('FORECAST_DISTRIBUTED'):
-            app.forecasts.maintain()
-        launch_shadow(app.instance_path)
-        launch_supervised(app.instance_path)
-    schedule.every().day.at("09:45", "Asia/Taipei").do(run_forecast_shadows)
-    schedule.every().day.at("18:15", "Asia/Taipei").do(run_forecast_shadows)
-    run_forecast_shadows()
-
     scheduler_thread = Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     logger.info("✅ 定時任務已啟動（09:00 + 09:30 重試）")

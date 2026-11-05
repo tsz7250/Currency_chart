@@ -83,7 +83,7 @@ Interval score 改善 4.00%，三種日期區塊重抽樣的差值區間均低�
 - `research_bolt_intervals.py`：建立固定 Bolt 中心及原始區間。
 - `research_cross_pair.py`：提供最佳方向融合使用的 CatBoost control 機率。
 
-這些入口產生的報告皆保存在 `instance`。正式發布回放與探索性研究分開，不以歷史回放冒充正式發出預測。
+這些入口產生的報告皆保存在 `instance`。探索性研究與主站按需預測分開，不以歷史回放冒充未見資料驗證。
 
 ## 已淘汰方法
 

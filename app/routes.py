@@ -26,21 +26,11 @@ def get_forecast():
         horizon = 0
     if horizon not in (7, 14, 30) or not all(validate_currency_code(c) and c.isascii() for c in (buy, sell)):
         return jsonify(status='invalid', message='請使用有效幣別及 7／14／30 天預測期間。'), 400
-    if current_app.config.get('FORECAST_DISTRIBUTED'):
-        result, status = current_app.forecasts.get_release(f'{buy}-{sell}', horizon, now_taipei().date())
-        response = jsonify(result)
-        if status == 202:
-            response.headers['Retry-After'] = '2'
-        return response, status
-    if (buy, sell) == ('TWD', 'HKD') and isinstance(current_app.manager.data, dict):
-        # 直接讀取原始快照，讓同一天的價格修正也能使預測快取失效。
-        with current_app.manager.data_lock:
-            history = dict(current_app.manager.data)
-        chart = {'dates': list(history), 'rates': [v.get('rate') for v in history.values()]}
-    else:
-        chart = current_app.manager.create_chart(180, buy, sell)
+    chart = current_app.manager.get_forecast_history(buy, sell)
     if not chart:
-        return jsonify(status='pending', message='正在取得 180 天歷史資料。'), 202
+        response = jsonify(status='pending', message='正在補齊一年歷史資料。')
+        response.headers['Retry-After'] = '2'
+        return response, 202
     try:
         entries = prepare_entries(chart['dates'], chart['rates'])
         age = (now_taipei().date() - entries[-1][0]).days

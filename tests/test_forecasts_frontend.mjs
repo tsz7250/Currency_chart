@@ -31,10 +31,9 @@ requests[0].resolve({ status: 202, json: async () => ({ status: 'pending', messa
 await new Promise(setImmediate);
 [...timers.values()].find(timer => timer.delay === 2000).callback();
 const ready = { buy_currency: 'TWD', sell_currency: 'HKD', status: 'ready', as_of: '2026-11-04', experimental: true,
-  release_version: 'official-test', published_at: '2026-11-04T10:00:00+08:00', data_age_days: 1, sync_state: 'offline',
   recent_history: Array.from({ length: 7 }, (_, i) => ({ date: `2026-10-${25+i}`, rate: i === 1 ? null : 1 })),
   points: [{ date: '2026-11-05', median: 1, low80: .9, high80: 1.1, calibration_samples: 20 }],
-  backtest: { raw: { mae: .01 }, calibrated: { samples: 7, coverage80: .7 }, issued: { samples: 0, coverage80: null },
+  backtest: { raw: { mae: .01 }, calibrated: { samples: 7, coverage80: .7 },
     classification: { samples: 20, accuracy: .5, precision: .3, recall: .3, f1: .3 } } };
 requests[1].resolve({ status: 200, ok: true, json: async () => ready });
 await new Promise(setImmediate);
@@ -43,9 +42,7 @@ assert.equal(charts.at(-1).config.data.datasets[0].data[1], null);
 assert.equal(charts.at(-1).config.data.datasets[2].fill, 1);
 assert.match(controls['forecast-metrics'].textContent, /Accuracy 50.0%/);
 assert.match(controls['forecast-status'].textContent, /實驗性/);
-assert.match(controls['forecast-status'].textContent, /official-test/);
-assert.match(controls['forecast-status'].textContent, /離線保存版本/);
-assert.match(controls['forecast-status'].textContent, /正式發布後涵蓋率 樣本不足/);
+assert.match(controls['forecast-status'].textContent, /資料基準日 2026-11-04/);
 controls['forecast-horizon'].value = '14';
 handlers.get('forecast-horizon:change')();
 assert.equal(charts[0].destroyed, true);

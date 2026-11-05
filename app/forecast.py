@@ -92,7 +92,7 @@ def classification(rows, lookup):
 def evaluate(entries, predict):
     """predict 接受多筆日曆數列，回傳 [批次, 30, 3]，便於隔離模型測試。"""
     latest = entries[-1][0]
-    entries = [(d, r) for d, r in entries if d >= latest - timedelta(days=179)]
+    entries = [(d, r) for d, r in entries if d >= latest - timedelta(days=364)]
     lookup = dict(entries)
     origins, inputs = [], []
     for i, (day, _) in enumerate(entries):
@@ -145,8 +145,8 @@ def evaluate(entries, predict):
     return {'model': MODEL_ID, 'model_revision': MODEL_REVISION,
             'as_of': latest.isoformat(), 'training_start': entries[0][0].isoformat(),
             'context_days': WINDOW_DAYS, 'points': points,
-            'backtest': {str(h): {**{m: summary(v) for m, v in groups.items()},
-                               'classification': classification(groups['raw'], lookup)}
+            'backtest': {str(h): {**{m: summary(v[-90:]) for m, v in groups.items()},
+                               'classification': classification(groups['raw'][-90:], lookup)}
                          for h, groups in rows.items()}, 'rows': rows}
 
 

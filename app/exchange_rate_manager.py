@@ -13,6 +13,7 @@ from flask import current_app
 
 from .utils import LRUCache, RateLimiter
 from .sse import send_sse_event
+from .forecast_history import ForecastHistory
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ rate_limiter = RateLimiter(max_requests_per_second=5)
 
 
 class ExchangeRateManager:
-    def __init__(self):
+    def __init__(self, instance_path='instance'):
         self.data = self.load_data()
         self._network_paused = False
         self._pause_until = 0
@@ -41,6 +42,12 @@ class ExchangeRateManager:
         self.background_executor = ThreadPoolExecutor(max_workers=12, thread_name_prefix='ChartGen')
         self._active_fetch_lock = Lock()
         self._active_fetches = set()
+        self._active_forecast_fetches = set()
+        self._forecast_retry_after = {}
+        instance_path = os.fspath(instance_path)
+        self.forecast_history = ForecastHistory(
+            os.path.join(instance_path, 'forecast-history', 'quotes.sqlite3'),
+            os.path.join(instance_path, 'forecast-publisher', 'quotes.sqlite3'))
 
         # 主數據鎖
         self.data_lock = Lock()
@@ -210,6 +217,73 @@ class ExchangeRateManager:
                 return date_str, None, 'other'
 
         return date_str, None, 'other'
+
+    def get_forecast_history(self, buy_currency, sell_currency):
+        """按需復用近 180 天，只補抓第 180～364 天。"""
+        from .alerts import now_taipei
+        pair = f'{buy_currency}-{sell_currency}'
+        today = now_taipei().date()
+        self.forecast_history.migrate_legacy()
+        existing = self.forecast_history.history(pair, today)
+        if (buy_currency, sell_currency) == ('TWD', 'HKD'):
+            with self.data_lock:
+                recent = dict(self.data)
+            dates = sorted(recent)
+            self.forecast_history.seed(pair, dates, [recent[d]['rate'] for d in dates])
+        else:
+            chart = self.lru_cache.get(f'chart_{buy_currency}_{sell_currency}_180')
+            if chart:
+                self.forecast_history.seed(pair, chart['dates'], chart['rates'])
+            elif (not existing or
+                  (today - datetime.fromisoformat(existing['dates'][-1]).date()).days > 7):
+                self.create_chart(180, buy_currency, sell_currency)
+                return None
+        pending = self.forecast_history.pending_backfill(pair, today)
+        if pending:
+            with self._active_fetch_lock:
+                if (pair not in self._active_forecast_fetches
+                        and time.monotonic() >= self._forecast_retry_after.get(pair, 0)):
+                    self._active_forecast_fetches.add(pair)
+                    self.background_executor.submit(
+                        self._backfill_forecast_history, pair, buy_currency, sell_currency, pending)
+            return None
+        return self.forecast_history.history(pair, today)
+
+    def _backfill_forecast_history(self, pair, buy_currency, sell_currency, days):
+        failed = False
+        try:
+            with ThreadPoolExecutor(max_workers=12, thread_name_prefix='ForecastHistory') as executor:
+                futures = {executor.submit(
+                    self._fetch_forecast_history_rate, day, buy_currency, sell_currency): day
+                    for day in days}
+                for future in as_completed(futures):
+                    day, rate, fx_date, status = future.result()
+                    if rate is not None:
+                        self.forecast_history.record(pair, day, rate, fx_date)
+                    else:
+                        self.forecast_history.record(pair, day, status=status or 'other')
+                        failed = failed or status != 'not_found'
+        except Exception:
+            failed = True
+            logger.exception('預測歷史補抓失敗：%s', pair)
+        finally:
+            with self._active_fetch_lock:
+                self._active_forecast_fetches.discard(pair)
+                if failed:
+                    self._forecast_retry_after[pair] = time.monotonic() + 60
+
+    def _fetch_forecast_history_rate(self, day, buy_currency, sell_currency):
+        day_text = day.strftime('%Y-%m-%d')
+        try:
+            data = self._get_or_create_scraper().get_exchange_rate(day, buy_currency, sell_currency)
+            if data and 'conversionRate' in data.get('data', {}):
+                value = data['data']
+                return day_text, float(value['conversionRate']), value.get('fxDate'), None
+            status = data.get('error', 'other') if data else 'other'
+            return day_text, None, None, status
+        except Exception:
+            logger.exception('預測歷史單日抓取失敗：%s/%s', f'{buy_currency}-{sell_currency}', day_text)
+            return day_text, None, None, 'other'
 
     def get_live_rates_for_period(self, days, buy_currency, sell_currency):
         """

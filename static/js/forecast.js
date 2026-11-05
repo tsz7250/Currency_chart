@@ -63,7 +63,7 @@ export function setupForecast(manager) {
       if (token !== sequence || (data.buy_currency && !matches(data))) return;
       if (response.status === 202) {
         status.textContent = data.message;
-        if (attempt < 59) timer = setTimeout(() => load(attempt + 1, token), 2000);
+        if (attempt < 299) timer = setTimeout(() => load(attempt + 1, token), 2000);
         else { status.textContent = '預測準備時間較長，請稍後重試。'; retry.hidden = false; }
         return;
       }
@@ -82,10 +82,7 @@ export function setupForecast(manager) {
       const change = baseline ? (data.backtest.raw.mae / baseline - 1) * 100 : null;
       const comparison = change == null ? '' : `｜中心值回測誤差較維持最新匯率${change <= 0 ? '低' : '高'} ${Math.abs(change).toFixed(1)}%`;
       const coverageWarning = stats.coverage80 != null && stats.coverage80 < 0.8 ? '｜注意：實測涵蓋率低於 80% 目標' : '';
-      const version = data.release_version ? `版本 ${data.release_version}｜資料落後 ${data.data_age_days} 日｜${data.sync_state === 'offline' ? '離線保存版本｜' : ''}` : '';
-      const issued = data.backtest.issued;
-      const live = issued ? `｜正式發布後涵蓋率 ${issued.coverage80 == null ? '樣本不足' : `${(issued.coverage80 * 100).toFixed(1)}%`}（${issued.samples} 次）` : '';
-      status.textContent = `${version}資料基準日 ${data.as_of}｜自基準日起 ${select.value} 天，目標 ${end.date}｜期末中位數 ${end.median.toPrecision(5)}｜${range}｜歷史回放：${coverage}${comparison}${coverageWarning}${live}${data.experimental ? '｜實驗性：驗證樣本不足' : ''}。80% 為各目標日的涵蓋目標，不保證整條路徑均在區間內。`;
+      status.textContent = `資料基準日 ${data.as_of}｜自基準日起 ${select.value} 天，目標 ${end.date}｜期末中位數 ${end.median.toPrecision(5)}｜${range}｜歷史回放：${coverage}${comparison}${coverageWarning}${data.experimental ? '｜實驗性：驗證樣本不足' : ''}。80% 為各目標日的涵蓋目標，不保證整條路徑均在區間內。`;
       const score = data.backtest.classification;
       const percent = value => value == null ? '尚無結果' : `${(value * 100).toFixed(1)}%`;
       metrics.textContent = score ? `方向回測 ${score.samples} 次｜Accuracy ${percent(score.accuracy)}｜Precision ${percent(score.precision)}｜Recall ${percent(score.recall)}｜F1 ${percent(score.f1)}｜價格 MAE ${data.backtest.raw.mae?.toPrecision(5) ?? '尚無結果'}` : '方向評分尚無結果。';

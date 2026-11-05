@@ -317,15 +317,11 @@ class AlertsTest(unittest.TestCase):
         self.app.manager = self.manager
         with patch.object(scheduler, 'Thread'), \
                 patch.object(scheduler, '_app', None), \
-                patch('app.forecast_shadow.launch_shadow') as shadow, \
-                patch('app.forecast_supervised_shadow.launch_supervised') as supervised, \
                 patch.object(schedule.default_scheduler, 'jobs', []):
             scheduler.init_scheduler(self.app)
             daily = [job for job in schedule.default_scheduler.jobs if job.unit == 'days']
-            self.assertEqual([str(job.at_time_zone) for job in daily], ['Asia/Taipei'] * 4)
-            self.assertEqual([str(job.at_time) for job in daily], ['09:00:00', '09:30:00', '09:45:00', '18:15:00'])
-            shadow.assert_called_once_with(self.app.instance_path)
-            supervised.assert_called_once_with(self.app.instance_path)
+            self.assertEqual([str(job.at_time_zone) for job in daily], ['Asia/Taipei'] * 2)
+            self.assertEqual([str(job.at_time) for job in daily], ['09:00:00', '09:30:00'])
         with patch.object(scheduler, '_app', self.app), \
                 patch.object(scheduler, '_fetch_missing_data', side_effect=RuntimeError('test')), \
                 patch.object(self.service, 'check') as check, \

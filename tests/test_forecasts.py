@@ -79,6 +79,16 @@ class ForecastTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             evaluate(entries(), lambda x: [[[2, 1, 3]] * 30 for _ in x])
 
+    def test_year_history_keeps_90_day_context_and_90_scored_origins(self):
+        start = date(2025, 11, 5)
+        source = [(start + timedelta(days=i), 1 + i * .0001) for i in range(365)]
+        report = evaluate(source, predict)
+        self.assertEqual(report['training_start'], str(start))
+        self.assertEqual(report['context_days'], 90)
+        for horizon in ('7', '14', '30'):
+            self.assertLessEqual(report['backtest'][horizon]['raw']['samples'], 90)
+            self.assertLessEqual(report['backtest'][horizon]['classification']['samples'], 90)
+
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
@@ -88,7 +98,8 @@ class ApiTests(unittest.TestCase):
         self.app.manager = Mock()
         self.app.forecasts = Mock()
         source = entries()
-        self.app.manager.create_chart.return_value = {'dates': [str(d) for d, r in source], 'rates': [r for d, r in source]}
+        self.app.manager.get_forecast_history.return_value = {
+            'dates': [str(d) for d, r in source], 'rates': [r for d, r in source]}
         self.client = self.app.test_client()
         self.clock = patch('app.routes.now_taipei', return_value=datetime(2026, 11, 4, tzinfo=TAIPEI))
         self.clock.start()
@@ -97,7 +108,7 @@ class ApiTests(unittest.TestCase):
     def test_parameter_validation_and_pending(self):
         for url in ('?horizon=99', '?horizon=a', '?buy_currency=usd', '?buy_currency=ＡＢＣ'):
             self.assertEqual(self.client.get('/api/forecast' + url).status_code, 400)
-        self.app.manager.create_chart.return_value = None
+        self.app.manager.get_forecast_history.return_value = None
         self.assertEqual(self.client.get('/api/forecast').status_code, 202)
         self.app.forecasts.get.assert_not_called()
 
@@ -116,22 +127,20 @@ class ApiTests(unittest.TestCase):
         self.assertIn('30', report['backtest'])
 
     def test_stale_data_is_not_forecast(self):
-        self.app.manager.create_chart.return_value = {'dates': ['2020-01-01'], 'rates': [1]}
+        self.app.manager.get_forecast_history.return_value = {'dates': ['2020-01-01'], 'rates': [1]}
         self.assertEqual(self.client.get('/api/forecast').get_json()['status'], 'stale')
         self.app.forecasts.get.assert_not_called()
 
     def test_same_day_source_correction_bypasses_chart_cache(self):
-        from threading import Lock
-        self.app.manager.data_lock = Lock()
-        self.app.manager.data = {str(d): {'rate': r} for d, r in entries()}
         self.app.forecasts.get.return_value = {'status': 'pending'}, 202
+        first_chart = {'dates': [str(d) for d, _ in entries()], 'rates': [r for _, r in entries()]}
+        second_chart = {'dates': first_chart['dates'], 'rates': first_chart['rates'][:-1] + [2]}
+        self.app.manager.get_forecast_history.side_effect = [first_chart, second_chart]
         self.client.get('/api/forecast')
         first = self.app.forecasts.get.call_args.args[1]
-        self.app.manager.data[max(self.app.manager.data)]['rate'] = 2
         self.client.get('/api/forecast')
         second = self.app.forecasts.get.call_args.args[1]
         self.assertNotEqual(first, second)
-        self.app.manager.create_chart.assert_not_called()
 
     def test_cache_fingerprint_and_native_worker(self):
         import gevent
