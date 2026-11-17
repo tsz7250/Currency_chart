@@ -160,10 +160,9 @@ def run(source, destination, deadline):
                 direction_eligible=all(checks_d.values()), price_eligible=all(checks_p.values()),
                 models={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in destination.glob('*.cbm')},
                 runtime_files={str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in
-                               [ROOT/'app/forecast_supervised.py', ROOT/'app/forecast_supervised_shadow.py',
-                                ROOT/'scripts/shadow_supervised.py', ROOT/'app/forecast_market.py',ROOT/'app/forecast.py',
-                                ROOT/'app/forecast_shadow.py',ROOT/'app/forecast_research.py',
-                                ROOT/'scripts/research_supervised.py',ROOT/'scripts/shadow_forecasts.py',
+                               [ROOT/'app/forecast_supervised.py', ROOT/'app/forecast_market.py',ROOT/'app/forecast.py',
+                                ROOT/'app/forecast_research.py',
+                                ROOT/'scripts/research_supervised.py',
                                 ROOT/'scripts/benchmark_forecasts.py',ROOT/'scripts/research_forecasts.py']},
                 packages={p:importlib.metadata.version(p) for p in ('catboost','scikit-learn','numpy','torch','chronos-forecasting','transformers')})
     write_once(destination/'candidate-lock.json',lock)
@@ -205,11 +204,6 @@ def main():
         timer.cancel()
         manifest['elapsed_seconds']=time.time()-manifest['started']
         save(destination/'manifest.json',manifest)
-    if all(result['direction_checks'].values()) or all(result['price_checks'].values()):
-        from scripts.shadow_supervised import activate
-        from app.forecast_supervised_shadow import launch_supervised
-        activate(ROOT/'instance/forecast-supervised-shadow',destination)
-        launch_supervised(ROOT/'instance')
 
 
 if __name__ == '__main__':

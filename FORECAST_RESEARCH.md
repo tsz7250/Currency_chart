@@ -4,7 +4,7 @@
 
 ## 結論
 
-目前主站使用固定版本 Chronos-Bolt Small 為中心；方向融合候選已依下方 2026-11-16 治理變更以探索性等級上主站。其餘研究候選不會自動替換主站，也不會改寫影子紀錄。
+目前主站使用固定版本 Chronos-Bolt Small 為中心；方向融合候選已依下方 2026-11-16 治理變更以探索性等級上主站。其餘研究候選不會自動替換主站，也不會改寫影子紀錄。2026-11-17：影子驗證基建（`app/forecast_shadow.py`、`app/forecast_supervised_shadow.py`、`scripts/shadow_forecasts.py`、`scripts/shadow_supervised.py`）已整組移除，判定改由滾動回測承擔。
 
 ### 2026-11-16 治理變更（擁有者決定）
 
@@ -16,7 +16,7 @@
 - 持續驗證由彈窗既有滾動回測承擔：上線初期起點落在模型訓練期（約 3 個月），分數會偏高；汙染起點滾出 90 天窗口後數字轉為可信。
 - 判定規則（事先記錄）：汙染期過後，若傾斜路徑回測 macro F1 ≥ Bolt 中位數回測 macro F1，則保留；否則移除傾斜路徑，彈窗退回校準帶＋到價計算器。
 - 2026-11-17 執行判定：首次訓練（11-16）的 holdout 樣本外評估（342 樣本）accuracy 50.1%、macro F1 23.2%，TWD-HKD/7 天 accuracy 34.5%——方向訊號在未見資料上不存在，證實原研究 61.2% 為重用日期的探索性灌水。擁有者決定立即停用融合推論（`instance/models/blend-disabled` 標記檔；自動訓練與 holdout 評估照常每 7 天刷新證據）。重新啟用＝刪除該標記檔。
-- 舊影子基建（`scripts/shadow_supervised.py`、`app/forecast_supervised_shadow.py`）保留但不使用。
+- 舊影子基建已於 2026-11-17 整組移除（見結論段）。
 
 ### 最佳方向候選
 

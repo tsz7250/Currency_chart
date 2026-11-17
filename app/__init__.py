@@ -115,8 +115,7 @@ def auto_update_data():
     from .cookie_fetcher import CookieFetcher
     import json
     import time
-    import random
-    
+
     DATA_FILE = 'TWD-HKD_180d.json'
     COOKIES_FILE = 'mastercard_cookies.json'
     

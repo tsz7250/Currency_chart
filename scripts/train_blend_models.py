@@ -11,13 +11,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-import numpy as np
 
 from app import forecast_supervised as s
 from app.forecast_blend import get_snapshot, models_fresh
 from app.forecast_market import MarketHistory, download_market
 from app.forecast_yields import download as download_yields
-from scripts.benchmark_forecasts import PAIRS, check_deadline, fetch_year
+from scripts.benchmark_forecasts import PAIRS, fetch_year
 from scripts.evaluate_forecasts import save
 
 HOLDOUT_DAYS = 35

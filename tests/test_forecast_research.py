@@ -1,17 +1,9 @@
 import copy
-import hashlib
-import json
-import sqlite3
-import tempfile
 import unittest
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
-from unittest.mock import patch
+from datetime import date, timedelta
 
 from app.forecast_market import MarketHistory, next_source_day
 from app.forecast_research import metrics, new_states, replay, replacement_checks
-from app.forecast_shadow import ShadowStore, launch_shadow
-from scripts.shadow_forecasts import assess, daily
 
 
 class ResearchTests(unittest.TestCase):
@@ -68,72 +60,6 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(result['interval_samples'], 0)
         self.assertIsNone(result['coverage80'])
         self.assertEqual(replacement_checks({}, {}, {}), {'complete': False})
-
-
-class ShadowTests(unittest.TestCase):
-    def test_daily_worker_snapshot_restart_and_duplicate(self):
-        from app.alerts import TAIPEI
-        root = Path(__file__).resolve().parents[1]
-        day = date(2026, 11, 5)
-        data = {'TWD-HKD': {str(day - timedelta(days=i)): {'rate': 100 - i * .01} for i in range(190)}}
-        def predict(inputs):
-            return [[[values[-1] * scale for scale in (.99, 1, 1.01)] for _ in range(30)] for values in inputs]
-        def predictions_stub(entries, *args):
-            origins = [d for d, _ in entries[89:]]
-            quantiles = [[[r * scale for scale in (.99, 1, 1.01)] for _ in range(30)] for _, r in entries[89:]]
-            return origins, quantiles
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as directory:
-            folder = Path(directory)
-            config = {'pairs': ['TWD-HKD'], 'center': 'blend', 'interval': 'adaptive', 'runtime_files': {}, 'packages': {}}
-            for name, key in [('forecast_research.py','research_code_sha256'), ('forecast_market.py','market_code_sha256'), ('forecast.py','baseline_code_sha256')]:
-                config[key] = hashlib.sha256((root/'app'/name).read_bytes()).hexdigest()
-            store = ShadowStore(folder/'shadow.sqlite3')
-            run = store.register(config, day)
-            (folder/'active.json').write_text(json.dumps({'run':run,'research':str(folder)}))
-            with patch('scripts.shadow_forecasts.refresh_history', return_value=data), \
-                 patch('scripts.shadow_forecasts.download_market', return_value={'sources':{}}), \
-                 patch('scripts.shadow_forecasts.Predictor', return_value=predict), \
-                 patch('scripts.shadow_forecasts.predictions', side_effect=predictions_stub), \
-                 patch('scripts.shadow_forecasts.now_taipei', return_value=datetime(2026,11,5,9,45,tzinfo=TAIPEI)):
-                daily(folder)
-                daily(folder)
-            self.assertEqual(len(store.records(run)), 1)
-            data['TWD-HKD']['2026-11-06'] = {'rate':100.1}
-            with patch('scripts.shadow_forecasts.refresh_history', return_value=data), \
-                 patch('scripts.shadow_forecasts.download_market', return_value={'sources':{}}), \
-                 patch('scripts.shadow_forecasts.Predictor', return_value=predict), \
-                 patch('scripts.shadow_forecasts.predictions', side_effect=predictions_stub), \
-                 patch('scripts.shadow_forecasts.now_taipei', return_value=datetime(2026,11,6,9,45,tzinfo=TAIPEI)):
-                daily(folder)
-            records = store.records(run)
-            self.assertEqual(len(records), 2)
-            self.assertNotIn('2026-11-06', records[0][1]['mastercard_snapshot']['TWD-HKD'])
-            self.assertEqual(len(records[1][1]['pairs']['TWD-HKD']['candidate']), 30)
-
-    def test_immutable_restart_and_no_backdated_forecasts(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as folder:
-            path = Path(folder) / 'shadow.sqlite3'
-            store = ShadowStore(path)
-            day = date(2026, 11, 5)
-            run = store.register({'pairs': ['TWD-HKD']}, day)
-            points = [{'median': 1, 'low': .9, 'high': 1.1}] * 30
-            payload = {'issued_at': '2026-11-05T09:45:00+08:00', 'pairs': {'TWD-HKD': {'candidate': points, 'baseline': points}}}
-            self.assertTrue(store.append(run, day, payload))
-            self.assertFalse(ShadowStore(path).append(run, day, dict(payload, test='changed')))
-            self.assertNotIn('test', store.records(run)[0][1])
-            with store.connect() as db, self.assertRaises(sqlite3.IntegrityError):
-                db.execute('UPDATE forecasts SET payload=?', ('{}',))
-            with self.assertRaises(ValueError):
-                store.append(run, day + timedelta(days=1), payload)
-            self.assertFalse(assess(store, run, {}, day)['eligible_for_production'])
-
-    def test_launch_failure_does_not_escape_to_main_app(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as folder:
-            target = Path(folder) / 'forecast-shadow'
-            target.mkdir()
-            (target / 'active.json').write_text('{}')
-            with patch('app.forecast_shadow.subprocess.Popen', side_effect=OSError('test failure')):
-                self.assertFalse(launch_shadow(folder))
 
 
 if __name__ == '__main__':

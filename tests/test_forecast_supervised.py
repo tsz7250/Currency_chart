@@ -1,17 +1,11 @@
 import copy
-import json
-import tempfile
 import unittest
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
+from datetime import date, timedelta
 from unittest.mock import patch
 
 import numpy as np
 from app import forecast_supervised as s
 from app.forecast_market import MarketHistory
-from app.forecast_shadow import ShadowStore
-from app.forecast_supervised_shadow import SupervisedShadowStore, launch_supervised
-from scripts.shadow_supervised import activate, daily
 
 
 class SupervisedTests(unittest.TestCase):
@@ -91,16 +85,6 @@ class SupervisedTests(unittest.TestCase):
         with patch.object(s,'replacement_checks',return_value={'complete':True,'f1_no_worse':False,'price_5_percent':True}):
             self.assertEqual(s.price_checks({}, {}, {}),{'complete':True,'price_5_percent':True})
 
-    def test_supervised_launch_failure_does_not_escape(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            folder=Path(tmp)/'forecast-supervised-shadow'
-            folder.mkdir()
-            (folder/'active.json').write_text('{}')
-            with patch('app.forecast_supervised_shadow.subprocess.Popen',side_effect=OSError('test')), \
-                    patch('app.forecast_supervised_shadow._process',None), \
-                    self.assertLogs('app.forecast_supervised_shadow',level='ERROR'):
-                self.assertFalse(launch_supervised(tmp))
-
     def test_joint_bootstrap_retains_correlated_pairs(self):
         rows=[dict(pair=p,origin=self.start+timedelta(days=i),horizon=h,label=i%3,base=1,actual=1,
                    target=self.start+timedelta(days=i+h)) for i in range(60) for p in s.PAIRS for h in s.HORIZONS]
@@ -114,69 +98,6 @@ class SupervisedTests(unittest.TestCase):
         with patch.object(s,'direction_report',side_effect=inspect):
             result=s.joint_uncertainty(rows,{'candidate':probs},{},repetitions=3)
         self.assertEqual(result['status'],'estimated')
-
-    def test_shadow_legacy_v2_immutable_and_failure(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path=Path(tmp)/'shadow.sqlite3'
-            old=ShadowStore(path)
-            new=SupervisedShadowStore(path)
-            origin=date(2026,1,1)
-            config=dict(pairs=['EUR-USD'])
-            point=dict(low=1,median=2,high=3)
-            payload=dict(issued_at='2026-01-01T10:00:00+08:00',pairs={'EUR-USD':dict(candidate=[point]*30,baseline=[point]*30)})
-            run=old.register(config,origin)
-            self.assertTrue(new.append(run,origin,payload))
-            self.assertEqual(new.records(run),old.records(run))
-            config.update(schema_version=2,direction_eligible=True,price_eligible=True,models={'direction.cbm':'digest'})
-            run=new.register(config,origin)
-            payload.update(schema_version=2,versions=config['models'])
-            payload['pairs']['EUR-USD'].update(direction={str(h):[.2,.3,.5] for h in s.HORIZONS},quantiles=[[1,2,3]]*30)
-            self.assertTrue(new.append(run,origin,payload))
-            self.assertFalse(SupervisedShadowStore(path).append(run,origin,payload))
-            before=new.records(run)
-            payload['pairs']['EUR-USD']['direction']['7']=[1,1,1]
-            with self.assertRaises(ValueError):
-                new.append(run,origin,payload)
-            self.assertEqual(before,new.records(run))
-
-    def test_failed_gates_cannot_activate(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            folder=Path(tmp)
-            (folder/'candidate-lock.json').write_text(json.dumps(dict(direction_eligible=False,price_eligible=False)))
-            (folder/'manifest.json').write_text('{"status":"complete"}')
-            (folder/'result.json').write_text(json.dumps(dict(status='complete',direction_checks={'pass':False},price_checks={'pass':False})))
-            with self.assertRaises(ValueError):
-                activate(folder/'shadow',folder)
-            self.assertFalse((folder/'shadow/active.json').exists())
-            self.assertFalse(launch_supervised(folder))
-
-    def test_daily_restart_and_failure_preserve_snapshot(self):
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as tmp:
-            folder=Path(tmp)
-            origin=self.start+timedelta(days=364)
-            config=dict(schema_version=2,pairs=['EUR-USD'],direction_eligible=True,price_eligible=False,
-                        direction_constant=2,models={},runtime_files={},packages={})
-            store=SupervisedShadowStore(folder/'shadow.sqlite3')
-            run=store.register(config,origin)
-            (folder/'active.json').write_text(json.dumps(dict(run=run,research=str(folder))))
-            report={'points':[dict(median=2,low80=1,high80=3) for _ in range(30)]}
-            predictor=lambda batch: [[[1,2,3] for _ in range(30)] for _ in batch]
-            with patch('scripts.shadow_supervised.now_taipei',return_value=datetime.fromisoformat(f'{origin}T10:00:00+08:00')), \
-                    patch('scripts.shadow_supervised.refresh_history',return_value={'EUR-USD':self.history}) as refresh, \
-                    patch('scripts.shadow_supervised.download_market',return_value=self.snapshot), \
-                    patch('scripts.shadow_supervised.evaluate',return_value=report), \
-                    patch('scripts.benchmark_forecasts.Predictor',return_value=predictor):
-                daily(folder)
-                daily(folder)
-                refresh.assert_called_once()
-            saved=store.records(run)
-            self.assertEqual(saved[0][1]['pairs']['EUR-USD']['direction']['30'],[0,0,1])
-            tomorrow=origin+timedelta(days=1)
-            with patch('scripts.shadow_supervised.now_taipei',return_value=datetime.fromisoformat(f'{tomorrow}T10:00:00+08:00')), \
-                    patch('scripts.shadow_supervised.refresh_history',side_effect=RuntimeError('missing quote')):
-                with self.assertRaises(RuntimeError):
-                    daily(folder)
-            self.assertEqual(saved,store.records(run))
 
 
 if __name__=='__main__':

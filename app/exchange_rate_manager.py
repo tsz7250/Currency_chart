@@ -1,8 +1,6 @@
 import os
 import json
 import time
-import hashlib
-import asyncio
 import logging
 import requests
 from datetime import datetime, timedelta
