@@ -1,18 +1,50 @@
 import schedule
+import subprocess
+import sys
 import time
 import json
 import os
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 from threading import Thread
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .sse import send_sse_event
 
 logger = logging.getLogger(__name__)
 _app = None
+_blend_process = None
 
 DATA_FILE = 'TWD-HKD_180d.json'
 COOKIES_FILE = 'mastercard_cookies.json'
+BLEND_STALE_DAYS = 7
+
+
+def blend_models_stale(root, stale_days=BLEND_STALE_DAYS):
+    """模型缺失或任一檔案超過 7 天即視為過期；委派 forecast_blend 單一實作。"""
+    from .forecast_blend import models_fresh
+    return not models_fresh(Path(root) / 'instance', stale_days)
+
+
+def check_blend_training():
+    """融合模型缺失或超過 7 天舊時，背景子程序重訓；任何失敗只記 log，不影響排程。"""
+    global _blend_process
+    try:
+        if _blend_process is not None and _blend_process.poll() is None:
+            return
+        root = Path(__file__).resolve().parents[1]
+        if not blend_models_stale(root):
+            return
+        log = root / 'instance' / 'forecast-blend' / 'train.log'
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open('a', encoding='utf-8') as stream:
+            _blend_process = subprocess.Popen(
+                [sys.executable, '-u', '-X', 'utf8', str(root / 'scripts/train_blend_models.py')],
+                cwd=root, stdout=stream, stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+        logger.info('融合模型訓練已於背景啟動')
+    except Exception:
+        logger.exception('融合模型訓練檢查失敗')
 
 
 def _fetch_missing_data():
@@ -284,9 +316,12 @@ def clear_cache_with_context():
         _app.manager.clear_expired_cache()
 
 def run_scheduler():
-    """在背景執行緒中執行定時任務"""
+    """在背景執行緒中執行定時任務；單一 job 例外不殺死排程。"""
     while True:
-        schedule.run_pending()
+        try:
+            schedule.run_pending()
+        except Exception:
+            logger.exception('排程任務執行失敗')
         time.sleep(60)
 
 def init_scheduler(app):
@@ -296,7 +331,9 @@ def init_scheduler(app):
 
     schedule.every().day.at("09:00", "Asia/Taipei").do(scheduled_update)
     schedule.every().day.at("09:30", "Asia/Taipei").do(scheduled_update)  # 重試排程
+    schedule.every().day.at("10:30", "Asia/Taipei").do(check_blend_training)
     schedule.every().hour.do(clear_cache_with_context)
     scheduler_thread = Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
-    logger.info("✅ 定時任務已啟動（09:00 + 09:30 重試）")
+    check_blend_training()  # 啟動時檢查，模型缺失立即補訓
+    logger.info("✅ 定時任務已啟動（09:00 + 09:30 重試 + 10:30 融合模型檢查）")

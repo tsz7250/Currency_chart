@@ -16,6 +16,16 @@ bp = Blueprint('main', __name__)
 SERVER_INSTANCE_ID = str(uuid.uuid4())
 
 
+def get_directions(buy, sell, entries):
+    """融合方向機率回呼；模型缺失或推論失敗時回傳 None，主站維持原行為。"""
+    try:
+        from . import forecast_blend
+        return forecast_blend.make_directions(current_app.instance_path, buy, sell, entries)
+    except Exception:
+        current_app.logger.warning('融合方向模組無法啟用', exc_info=True)
+        return None
+
+
 @bp.route('/api/forecast')
 def get_forecast():
     buy = request.args.get('buy_currency', 'TWD')
@@ -40,7 +50,7 @@ def get_forecast():
             return jsonify(status='insufficient', message='最近 90 天至少需要 40 筆報價。'), 200
     except (ValueError, KeyError, TypeError):
         return jsonify(status='insufficient', message='歷史資料無效，暫不提供預測。'), 200
-    result, status = current_app.forecasts.get((buy, sell), entries)
+    result, status = current_app.forecasts.get((buy, sell), entries, get_directions(buy, sell, entries))
     result = dict(result, buy_currency=buy, sell_currency=sell, horizon=horizon)
     if result['status'] == 'ready':
         start = entries[-1][0] - timedelta(days=6)

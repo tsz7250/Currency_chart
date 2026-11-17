@@ -4,7 +4,19 @@
 
 ## 結論
 
-目前主站仍使用固定版本 Chronos-Bolt Small。研究候選不會自動替換主站，也不會改寫影子紀錄。
+目前主站使用固定版本 Chronos-Bolt Small 為中心；方向融合候選已依下方 2026-11-16 治理變更以探索性等級上主站。其餘研究候選不會自動替換主站，也不會改寫影子紀錄。
+
+### 2026-11-16 治理變更（擁有者決定）
+
+方向融合候選改為探索性等級直接上主站，放棄影子累積驗證：
+
+- 傾斜路徑定義（實作即定義）：各預測點的傾斜倍率 = exp(d·σ)，d 為融合機率的 P(up)−P(down) 於 7／14／30 節點線性內插，σ 取該點校準帶隱含標準差 ln(high80/low80)/(2×1.2816)；帶於 log 空間同步平移。
+
+- 彈窗新增融合傾斜路徑（regime＋control CatBoost 固定 50/50，波動尺度傾斜、帶同步平移），標示實驗性。
+- 持續驗證由彈窗既有滾動回測承擔：上線初期起點落在模型訓練期（約 3 個月），分數會偏高；汙染起點滾出 90 天窗口後數字轉為可信。
+- 判定規則（事先記錄）：汙染期過後，若傾斜路徑回測 macro F1 ≥ Bolt 中位數回測 macro F1，則保留；否則移除傾斜路徑，彈窗退回校準帶＋到價計算器。
+- 2026-11-17 執行判定：首次訓練（11-16）的 holdout 樣本外評估（342 樣本）accuracy 50.1%、macro F1 23.2%，TWD-HKD/7 天 accuracy 34.5%——方向訊號在未見資料上不存在，證實原研究 61.2% 為重用日期的探索性灌水。擁有者決定立即停用融合推論（`instance/models/blend-disabled` 標記檔；自動訓練與 holdout 評估照常每 7 天刷新證據）。重新啟用＝刪除該標記檔。
+- 舊影子基建（`scripts/shadow_supervised.py`、`app/forecast_supervised_shadow.py`）保留但不使用。
 
 ### 最佳方向候選
 
@@ -42,21 +54,24 @@ Interval score 改善 4.00%，三種日期區塊重抽樣的差值區間均低�
 
 所有入口都限制 8 小時，輸出不可覆寫。多年市場資料只提供輔助資訊，不冒充 Mastercard 標籤。
 
-1. 建立五年市場、殖利率及波動情境模型：
+方向候選鏈（2026-11 版）用單一入口依序執行，失敗即停、可重跑續用既有輸出：
 
-   `python -X utf8 scripts/research_yield_regimes.py --history-source instance/forecast-research/run-2026-11-05 --output instance/forecast-yield-regimes-final/run-2026-11-05`
+```powershell
+python -X utf8 scripts/research_chain.py
+```
 
-2. 直接轉移方向機率並訓練市場分位數區間：
+鏈的順序：`benchmark_forecasts`（抓一年 Mastercard 與 Bolt/Chronos-2 基線）→ `research_forecasts`（歷史、市場快照、Bolt 分位數）→ `research_supervised`（control 資料與基線 predictions.json）→ `research_bolt_intervals`（raw 分位數；來源缺 `price.current` 時自動 raw-only）→ `research_cross_pair`（control cat4 模型）→ `research_yield_regimes`（regime 模型）→ `research_yield_transfer`（融合輸入）→ `research_direction_blend`（融合評估數字）。
 
-   `python -X utf8 scripts/research_yield_transfer.py --source instance/forecast-yield-regimes-final/run-2026-11-05 --history-source instance/forecast-research/run-2026-11-05 --reference-source instance/forecast-cross-pair/run-2026-11-05 --bolt-source instance/forecast-bolt-intervals/run-2026-11-05 --output instance/forecast-yield-transfer-final/run-2026-11-05-clean`
+跳過 `research_nested` 與 `research_evaluation_v2`：兩者只服務已淘汰的區間候選。`research_interval_pool` 同理不跑。
 
-3. 評估固定方向融合：
+### 最小訓練路徑（2026-11-16 起，自動）
 
-   `python -X utf8 scripts/research_direction_blend.py --source instance/forecast-yield-transfer-final/run-2026-11-05-clean --output instance/forecast-direction-blend/run-2026-11-05-clean`
+模型訓練不需手動執行，也不依賴完整研究鏈：
 
-4. 評估共同對稱 CQR 區間：
-
-   `python -X utf8 scripts/research_interval_pool.py --source instance/forecast-yield-transfer-final/run-2026-11-05-clean --market-source instance/forecast-yield-regimes-final/run-2026-11-05 --history-source instance/forecast-research/run-2026-11-05 --bolt-source instance/forecast-bolt-intervals/run-2026-11-05 --output instance/forecast-interval-final/run-2026-11-05-clean`
+- `scripts/train_blend_models.py` 只用既有過去資料：regime 模型來自五年公開市場資料，control 模型來自一年 Mastercard 歷史；排除最後 35 天 holdout，訓練後輸出樣本外評估至 `instance/forecast-blend/training-summary.json`。
+- 排程自動化：app 啟動時與每日 10:30（台北）檢查 `instance/models/blend-regime.cbm` 與 `blend-control.cbm`，缺失或超過 7 天舊即以背景子程序重訓（`app/scheduler.py` `check_blend_training`）；訓練失敗只寫 `train.log`，主站行為不變。
+- 模型檔存在即自動啟用融合（方向卡、傾斜路徑、含漂移到價機率）；刪除任一檔案即停用，主站退回純 Bolt 行為。
+- `research_chain.py` 保留為可選的完整研究數字路徑（含 Bolt 重播與門檻評估），不再是部署的必要步驟。
 
 ## 資料與驗證規則
 
@@ -124,8 +139,8 @@ Interval score 改善 4.00%，三種日期區塊重抽樣的差值區間均低�
 
 ## 限制與下一步
 
-- 最佳方向候選已通過工程門檻，但日期已用於多輪研究。
-- 最佳區間候選只改善 score 4.00%，沒有通過替換門檻。
-- 目前資料不足以安全訓練更細的局部校準或幣對專屬模型。
-- 下一個可信步驟是鎖定方向候選，使用真正未見的新日期驗證；修改候選後必須重新開始驗證期。
+- 方向融合候選已依 2026-11-16 治理變更上主站（實驗性）；回測數字在訓練期汙染消退前（約 3 個月）會偏高。
+- 判定以彈窗滾動回測為準：汙染期後 blend macro F1 ≥ Bolt 則保留，否則移除傾斜路徑。
+- 最佳區間候選只改善 score 4.00%，沒有通過替換門檻；區間維持現行 CQR 校準。
+- 目前資料不足以安全訓練更細的局部校準或幣對專屬模型；融合僅涵蓋研究的 6 個幣對。
 - 研究不提供交易指令，也不保證未來命中率或 80% 區間在每段期間成立。

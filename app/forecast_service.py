@@ -19,9 +19,10 @@ class ForecastService:
         self.jobs = {}
         self.cache = LRUCache(capacity=60, ttl_seconds=86400)
 
-    def get(self, pair, entries):
+    def get(self, pair, entries, directions=None):
         payload = [(d.isoformat(), r) for d, r in entries]
-        key = hashlib.sha256(json.dumps([pair, payload, MODEL_REVISION, 'log-cqr-v1']).encode()).hexdigest()
+        variant = 'log-cqr-v2' if directions is not None else 'log-cqr-v1'
+        key = hashlib.sha256(json.dumps([pair, payload, MODEL_REVISION, variant]).encode()).hexdigest()
         # 只在請求執行緒更新 jobs 和快取；背景工作只回傳結果。
         for old_key, future in list(self.jobs.items()):
             if future.done():
@@ -38,7 +39,7 @@ class ForecastService:
         if cached:
             return cached, 200 if cached['status'] == 'ready' else 503
         if key not in self.jobs and len(self.jobs) < 4:
-            self.jobs[key] = self.executor.submit(evaluate, entries, self.predict)
+            self.jobs[key] = self.executor.submit(evaluate, entries, self.predict, directions)
         elif key not in self.jobs:
             return {'status': 'busy', 'message': '預測工作已滿，請稍後重試。'}, 503
         return {'status': 'pending', 'message': '正在準備模型與校準預測區間。'}, 202

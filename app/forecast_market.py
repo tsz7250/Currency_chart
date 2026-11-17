@@ -83,7 +83,7 @@ class MarketHistory:
             rows = [r for r in source['rows'] if r['available_date']]
             self.sources[name] = ([(date.fromisoformat(r['available_date'])) for r in rows], rows)
 
-    def _known(self, source, day):
+    def known(self, source, day):
         dates, rows = self.sources[source]
         i = bisect_right(dates, day) - 1
         if i < 0 or (day - date.fromisoformat(rows[i]['quote_date'])).days > 10:
@@ -91,13 +91,13 @@ class MarketHistory:
         return rows[i]
 
     def rate(self, pair, day):
-        ecb = self._known('ecb', day)
+        ecb = self.known('ecb', day)
         if not ecb:
             return None
         values = dict(ecb['values'])
         buy, sell = pair.split('-')
         if 'TWD' in (buy, sell):
-            cbc = self._known('cbc', day)
+            cbc = self.known('cbc', day)
             if not cbc or 'USD' not in values:
                 return None
             values['TWD'] = values['USD'] * cbc['values']['TWD']

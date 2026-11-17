@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 from flask import Flask
 
-from app.forecast import classification, correction, evaluate, prepare_entries, widen
+from app.forecast import band_sigma, classification, correction, evaluate, prepare_entries, tilt_factor, widen
 from app.forecast_service import ForecastService
 from app.routes import bp
 from app.alerts import TAIPEI
@@ -52,6 +52,27 @@ class ForecastTests(unittest.TestCase):
         self.assertEqual(correction(scores[:19], today), (None, 19))
         lo, hi = widen(1, 2, adjustment)
         self.assertTrue(0 < lo < 1 < 2 < hi)
+
+    def test_band_sigma_and_tilt_factor(self):
+        self.assertAlmostEqual(band_sigma(.9, 1.1), math.log(1.1 / .9) / (2 * 1.2815515655446004))
+        self.assertEqual(tilt_factor(.5, .5, .9, 1.1), 1)
+        self.assertAlmostEqual(tilt_factor(.65, .35, .9, 1.1),
+                               math.exp(.3 * math.log(1.1 / .9) / (2 * 1.2815515655446004)))
+
+    def test_blend_backtest_scoring(self):
+        def directions(origin, base, horizon):
+            return (.2, .3, .5) if horizon in (7, 14, 30) else None
+        result = evaluate(entries(), predict, directions)
+        blend = result['backtest']['7']['blend']
+        self.assertGreater(blend['samples'], 0)
+        self.assertGreaterEqual(blend['classification']['accuracy'], 0)
+        self.assertLessEqual(blend['classification']['accuracy'], 1)
+        for h in ('1', '2'):
+            self.assertNotIn('blend', result['backtest'][h])
+        self.assertEqual(set(result['directions']), {'7', '14', '30'})
+        plain = evaluate(entries(), predict)
+        self.assertNotIn('blend', plain['backtest']['7'])
+        self.assertNotIn('directions', plain)
 
     def test_calendar_missing_values_and_no_future_leakage(self):
         source = entries()

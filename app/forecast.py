@@ -8,6 +8,9 @@ MIN_CONTEXT = 40
 MIN_CALIBRATION = 20
 WINDOW_DAYS = 90
 HORIZON = 30
+BLEND_HORIZONS = (7, 14, 30)
+# Bolt 10/90 分位數的標準常態間距。
+QUANTILE_Z = 1.2815515655446004
 
 
 def prepare_entries(dates, rates):
@@ -44,6 +47,16 @@ def correction(records, as_of):
 
 def widen(low, high, adjustment):
     return low * math.exp(-adjustment), high * math.exp(adjustment)
+
+
+def band_sigma(low, high):
+    """校準帶隱含的期末標準差（log 尺度）。"""
+    return math.log(high / low) / (2 * QUANTILE_Z)
+
+
+def tilt_factor(p_up, p_down, low, high):
+    """融合方向機率轉成中位數路徑傾斜倍率：d·σ_H，最大 ±1 個標準差。"""
+    return math.exp((p_up - p_down) * band_sigma(low, high))
 
 
 def summary(rows):
@@ -89,8 +102,10 @@ def classification(rows, lookup):
                for key in ('precision', 'recall', 'f1')}, 'per_class': scores}
 
 
-def evaluate(entries, predict):
-    """predict 接受多筆日曆數列，回傳 [批次, 30, 3]，便於隔離模型測試。"""
+def evaluate(entries, predict, directions=None):
+    """predict 接受多筆日曆數列，回傳 [批次, 30, 3]，便於隔離模型測試。
+    directions(origin, base, horizon) 選用：回傳 (跌, 平, 漲) 機率時，
+    7／14／30 天滾動回測同步評分傾斜中心與平移帶；blend 序列自校準生效（約第 20 個起點）開始。"""
     latest = entries[-1][0]
     entries = [(d, r) for d, r in entries if d >= latest - timedelta(days=364)]
     lookup = dict(entries)
@@ -106,8 +121,9 @@ def evaluate(entries, predict):
     if len(forecasts) != len(origins):
         raise ValueError('模型輸出筆數不符')
     records = {h: [] for h in range(1, HORIZON + 1)}
-    rows = {h: {m: [] for m in ('raw', 'calibrated', 'raw_matched', 'flat', 'drift')}
-            for h in range(1, HORIZON + 1)}
+    groups = ('raw', 'calibrated', 'raw_matched', 'flat', 'drift') + (('blend',) if directions is not None else ())
+    rows = {h: {m: [] for m in groups} for h in range(1, HORIZON + 1)}
+    latest_directions = {}
     points = []
     for (day, train), forecast in zip(origins, forecasts):
         if len(forecast) != HORIZON:
@@ -124,6 +140,15 @@ def evaluate(entries, predict):
             target = day + timedelta(days=h)
             adjustment, count = correction(records[h], day)
             bounds = widen(low, high, adjustment) if adjustment is not None else (None, None)
+            blend_probs = None
+            if directions is not None and h in BLEND_HORIZONS:
+                probs = directions(day, train[-1][1], h)
+                if (probs is not None and len(probs) == 3
+                        and all(math.isfinite(v) and 0 <= v <= 1 for v in probs)
+                        and math.isclose(sum(probs), 1, abs_tol=1e-6)):
+                    blend_probs = probs
+                    if day == latest:
+                        latest_directions[h] = [float(v) for v in probs]
             if day == latest:
                 points.append({'date': target.isoformat(), 'median': median,
                                'low80': bounds[0], 'high80': bounds[1],
@@ -140,14 +165,27 @@ def evaluate(entries, predict):
                 sd = math.sqrt(variance * (h + (h * h / span if name == 'drift' else 0)))
                 center = math.log(train[-1][1]) + mu * h
                 rows[h][name].append(measurement(day, target, actual,
-                    math.exp(center - 1.2815515655 * sd), math.exp(center), math.exp(center + 1.2815515655 * sd)))
+                    math.exp(center - QUANTILE_Z * sd), math.exp(center), math.exp(center + QUANTILE_Z * sd)))
             records[h].append({'target': target, 'score': score(low, high, actual)})
-    return {'model': MODEL_ID, 'model_revision': MODEL_REVISION,
-            'as_of': latest.isoformat(), 'training_start': entries[0][0].isoformat(),
-            'context_days': WINDOW_DAYS, 'points': points,
-            'backtest': {str(h): {**{m: summary(v[-90:]) for m, v in groups.items()},
-                               'classification': classification(groups['raw'][-90:], lookup)}
-                         for h, groups in rows.items()}, 'rows': rows}
+            if blend_probs is not None and bounds[0] is not None:
+                # 只用校準帶計債，與前端 bandSigma 同源；校準生效前（前 20 個起點）不計入 blend。
+                factor = tilt_factor(blend_probs[2], blend_probs[0], bounds[0], bounds[1])
+                rows[h]['blend'].append(measurement(day, target, actual,
+                    bounds[0] * factor, median * factor, bounds[1] * factor))
+    backtest = {}
+    for h, values in rows.items():
+        entry = {**{m: summary(v[-90:]) for m, v in values.items() if m != 'blend'},
+                 'classification': classification(values['raw'][-90:], lookup)}
+        if 'blend' in values and values['blend']:
+            entry['blend'] = {**summary(values['blend'][-90:]),
+                              'classification': classification(values['blend'][-90:], lookup)}
+        backtest[str(h)] = entry
+    result = {'model': MODEL_ID, 'model_revision': MODEL_REVISION,
+              'as_of': latest.isoformat(), 'training_start': entries[0][0].isoformat(),
+              'context_days': WINDOW_DAYS, 'points': points, 'backtest': backtest, 'rows': rows}
+    if latest_directions:
+        result['directions'] = {str(h): latest_directions[h] for h in sorted(latest_directions)}
+    return result
 
 
 class ChronosPredictor:

@@ -48,7 +48,7 @@ def market_dataset(snapshot, treasury, last):
         ages = {}
         for day in lookup:
             sources = ('ecb', 'cbc') if 'TWD' in pair else ('ecb',)
-            ages[day] = max((day-date.fromisoformat(market._known(src, day)['quote_date'])).days for src in sources)
+            ages[day] = max((day-date.fromisoformat(market.known(src, day)['quote_date'])).days for src in sources)
         skipped = 0
         for origin in sorted(lookup):
             if (pair, origin) not in macro:

@@ -57,34 +57,40 @@ def run(source,output,deadline):
                     if target in lookup:
                         records.append(dict(horizon=h,target=target,score=score(q[0],q[2],lookup[target])/scale(lookup,origin,h)))
         print('RAW',pair,flush=True)
-    baseline=np.array(data['price']['current'],dtype=float)
-    candidate=baseline.copy();audit=[]
-    for i,r in enumerate(rows):
-        if time.time()>deadline:raise TimeoutError('8-hour deadline')
-        q=raw[r['pair'],r['origin']][r['horizon']-1]
-        if not math.isclose(q[1],baseline[i,1],rel_tol=1e-6):
-            raise ValueError('現用價格與對照推論不一致')
-        sigma=scale(lookups[r['pair']],r['origin'],r['horizon']);r['scale']=sigma
-        delta,n=adjustment(records,r['origin'],r['horizon'])
-        if delta is None:raise ValueError('共同評分起點校準不足')
-        candidate[i,0]=min(q[0]*math.exp(-delta*sigma),baseline[i,1])
-        candidate[i,2]=max(q[2]*math.exp(delta*sigma),baseline[i,1])
-        audit.append(dict(pair=r['pair'],origin=r['origin'],horizon=r['horizon'],scale=sigma,
-                          calibration_samples=n,adjustment=delta,quantiles=candidate[i].tolist()))
-    assert np.array_equal(candidate[:,1],baseline[:,1])
-    reports={name:s.price_report(rows,q) for name,q in [('candidate',candidate),('current',baseline)]}
-    a,b=reports['candidate'],reports['current']
-    avg=lambda c,k:float(np.mean([v[k] for v in c.values()]))
-    checks=dict(price_unchanged=all(a[k]['normalized_mae']==b[k]['normalized_mae'] for k in a),
-        coverage_target=.75<=avg(a,'coverage80')<=.85,coverage_floor=all(v['coverage80']>=.7 for v in a.values()),
-        interval_score_10_percent=avg(a,'normalized_interval_score')<=.9*avg(b,'normalized_interval_score'),
-        width_limit=avg(a,'normalized_width')<=1.2*avg(b,'normalized_width'))
-    result=dict(status='complete',purpose='exploratory',eligible_for_production=False,checks=checks,
-        reports=reports,summary={name:{f:avg(c,f) for f in ('normalized_mae','coverage80','normalized_width',
-            'normalized_interval_score','lower_miss_rate','upper_miss_rate')} for name,c in reports.items()},
-        uncertainty=s.joint_uncertainty(rows,{},dict(candidate=candidate,current=baseline)))
-    write_once(output/'predictions.json',audit);write_once(output/'result.json',result)
-    print(json.dumps(dict(checks=checks,summary=result['summary'])),flush=True)
+    # 舊版來源才帶 price.current；現行鏈只產 raw 分位數（下游 transfer／cross_pair 只需要 raw）。
+    baseline=np.array(data['price']['current'],dtype=float) if 'price' in data and 'current' in data.get('price',{}) else None
+    if baseline is not None:
+        candidate=baseline.copy();audit=[]
+        for i,r in enumerate(rows):
+            if time.time()>deadline:raise TimeoutError('8-hour deadline')
+            q=raw[r['pair'],r['origin']][r['horizon']-1]
+            if not math.isclose(q[1],baseline[i,1],rel_tol=1e-6):
+                raise ValueError('現用價格與對照推論不一致')
+            sigma=scale(lookups[r['pair']],r['origin'],r['horizon']);r['scale']=sigma
+            delta,n=adjustment(records,r['origin'],r['horizon'])
+            if delta is None:raise ValueError('共同評分起點校準不足')
+            candidate[i,0]=min(q[0]*math.exp(-delta*sigma),baseline[i,1])
+            candidate[i,2]=max(q[2]*math.exp(delta*sigma),baseline[i,1])
+            audit.append(dict(pair=r['pair'],origin=r['origin'],horizon=r['horizon'],scale=sigma,
+                              calibration_samples=n,adjustment=delta,quantiles=candidate[i].tolist()))
+        assert np.array_equal(candidate[:,1],baseline[:,1])
+        reports={name:s.price_report(rows,q) for name,q in [('candidate',candidate),('current',baseline)]}
+        a,b=reports['candidate'],reports['current']
+        avg=lambda c,k:float(np.mean([v[k] for v in c.values()]))
+        checks=dict(price_unchanged=all(a[k]['normalized_mae']==b[k]['normalized_mae'] for k in a),
+            coverage_target=.75<=avg(a,'coverage80')<=.85,coverage_floor=all(v['coverage80']>=.7 for v in a.values()),
+            interval_score_10_percent=avg(a,'normalized_interval_score')<=.9*avg(b,'normalized_interval_score'),
+            width_limit=avg(a,'normalized_width')<=1.2*avg(b,'normalized_width'))
+        result=dict(status='complete',purpose='exploratory',eligible_for_production=False,checks=checks,
+            reports=reports,summary={name:{f:avg(c,f) for f in ('normalized_mae','coverage80','normalized_width',
+                'normalized_interval_score','lower_miss_rate','upper_miss_rate')} for name,c in reports.items()},
+            uncertainty=s.joint_uncertainty(rows,{},dict(candidate=candidate,current=baseline)))
+        write_once(output/'predictions.json',audit)
+        print(json.dumps(dict(checks=checks,summary=result['summary'])),flush=True)
+    else:
+        result=dict(status='complete',purpose='exploratory',eligible_for_production=False,
+            raw_only='來源缺少 price.current；僅產生 raw 分位數供 transfer／cross_pair 使用。')
+    write_once(output/'result.json',result)
 
 
 def main():

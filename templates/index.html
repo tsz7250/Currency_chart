@@ -144,6 +144,7 @@
         <button id="forecast-close" class="popup-close" aria-label="關閉未來預測">×</button>
       </div>
       <div class="popup-body">
+        <div class="forecast-direction"><span id="forecast-direction-main">—</span><span id="forecast-direction-sub" class="sub"></span></div>
         <div class="forecast-controls">
           <label for="forecast-horizon">預測期間</label>
           <select id="forecast-horizon">
@@ -152,11 +153,29 @@
             <option value="30">未來 30 天</option>
           </select>
           <button id="forecast-retry" type="button" hidden>重試預測</button>
-          <p id="forecast-status" role="status" aria-live="polite"></p>
+          <p id="forecast-status" role="status" aria-live="polite" hidden></p>
         </div>
+        <div class="forecast-facts" id="forecast-facts" hidden></div>
         <div class="forecast-chart-container"><canvas id="forecastChart" role="img" aria-label="近 7 天實際走勢與未來預測"></canvas></div>
-        <p id="forecast-metrics"></p>
-        <p class="forecast-note">方向評分採漲／平／跌三類，門檻 ±0.1%；Precision、Recall、F1 為三類等權平均。此為目前模型的滾動回測，並非封存測試。</p>
+        <div class="forecast-calculator">
+          <div class="forecast-calculator-input">
+            <label for="forecast-target">目標匯率</label>
+            <input id="forecast-target" type="number" step="any" min="0" inputmode="decimal" placeholder="想等到才換的價位">
+            <a id="forecast-alert-link" href="#">以此價位設定到價提醒</a>
+          </div>
+          <div class="forecast-calculator-result" role="status" aria-live="polite">
+            <span class="cell"><span class="cell-label" id="forecast-label-touch">天內觸及</span><b id="forecast-target-touch">—</b></span>
+            <span class="cell"><span class="cell-label">期末達到或更好</span><b id="forecast-target-end">—</b></span>
+            <span class="cell"><span class="cell-label" id="forecast-label-diff">每 1 萬差</span><b id="forecast-target-diff">—</b></span>
+          </div>
+          <p id="forecast-target-note"></p>
+        </div>
+        <p id="forecast-warning" class="forecast-warning" hidden></p>
+        <details id="forecast-details" class="forecast-details">
+          <summary>模型驗證詳情</summary>
+          <p id="forecast-metrics"></p>
+          <p class="forecast-note">到價機率為校準區間的對數常態近似（觸及用反射公式），非保證；等待是否有利請同時考慮自己的時間需求。方向評分採漲／平／跌三類，門檻 ±0.1%；Precision、Recall、F1 為三類等權平均。此為目前模型的滾動回測，並非封存測試。</p>
+        </details>
       </div>
     </div>
   </div>

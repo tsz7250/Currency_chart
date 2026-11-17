@@ -142,7 +142,8 @@ node tests/test_alerts_frontend.mjs
 
 ## Chronos 未來匯率預測（主站）
 
-主頁「未來預測」按鈕開啟獨立彈窗，顯示近 7 個日曆天實際報價，以及未來 7／14／30 天中位數與校準價格範圍。原歷史圖與期間設定不受影響。
+主頁「未來預測」按鈕開啟獨立彈窗，以換匯決策計算器為主角：輸入目標匯率即顯示「N 天內等到該價位的機率」與「等到該價位才換、每 1 萬元的差額」，並可一鍵帶入到價提醒。圖表顯示近 7 個日曆天實際報價與未來 7／14／30 天校準 80% 區間（對數常態近似推導機率；觸及機率用反射公式，皆為估計而非保證）。
+`instance/models/blend-regime.cbm` 與 `blend-control.cbm` 存在時（僅研究的 6 個幣對），彈窗另顯示實驗性融合傾斜路徑，帶隨之平移；滾動回測同時列出 Bolt 與傾斜路徑的分數。上線初期回測起點含模型訓練期，分數會偏高數月；判定規則見 FORECAST_RESEARCH.md。
 彈窗支援手機、Esc 關閉與焦點返回。方向回測顯示 accuracy、macro precision／recall／F1、樣本數與價格 MAE；漲／平／跌門檻為 ±0.1%，缺少類別的分數記為 0。此為目前模型滾動回測，並非一年資料的封存模型評選。
 本機使用固定版本 Chronos-Bolt Small 在 CPU 背景推論。
 先執行 `python -m pip install -r requirements.txt`，再依原方式執行 `python run.py`。
